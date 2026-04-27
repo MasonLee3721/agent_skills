@@ -12,7 +12,7 @@
  *   UANALYZE_USERNAME  - 優分析帳號 email
  *   UANALYZE_PASSWORD  - 優分析密碼
  *   GH_TOKEN           - GitHub token (或已設定 gh CLI)
- *   REPORT_REPO        - GitHub repo (預設: MasonLee3721/stock-analysis-reports)
+ *   REPORT_REPO        - GitHub repo (預設: MasonLee3721/agent_skills)
  *
  * 系統需求:
  *   - Node.js (位於 /home/agent/.node/bin/node)
@@ -29,9 +29,9 @@ const { execSync } = require('child_process');
 // ── 設定 ──────────────────────────────────────────────────────────────────
 const STOCK_CODE = process.argv[2] || '3533';
 const STOCK_NAME = process.argv[3] || STOCK_CODE;
-const REPORT_REPO = process.env.REPORT_REPO || 'MasonLee3721/stock-analysis-reports';
-const REPO_LOCAL = '/tmp/stock-analysis-reports';
-const REPORT_DIR = `${REPO_LOCAL}/kiro5_劍屏/reports`;
+const REPORT_REPO = process.env.REPORT_REPO || 'MasonLee3721/agent_skills';
+const REPO_LOCAL = '/tmp/agent_skills';
+const REPORT_DIR = `${REPO_LOCAL}/kiro/kiro5_劍屏/stock-analysis-reports/reports`;
 const CHROME = '/home/agent/.cache/ms-playwright/chromium-1217/chrome-linux64/chrome';
 const PLAYWRIGHT = '/home/agent/.npm/_npx/e41f203b7505f1fb/node_modules/playwright';
 
@@ -244,7 +244,7 @@ async function run() {
   const token = execSync('gh auth token', { encoding: 'utf8' }).trim();
   execSync(`cd ${REPO_LOCAL} && git config user.email "kiro5@uanalyze" && git config user.name "MuJianping"`, { stdio: 'pipe' });
   execSync(`cd ${REPO_LOCAL} && git remote set-url origin "https://${token}@github.com/${REPORT_REPO}.git"`, { stdio: 'pipe' });
-  execSync(`cd ${REPO_LOCAL} && git add "kiro5_劍屏/reports/${filename}" && git commit -m "add: ${STOCK_NAME}(${STOCK_CODE}) 小助理完整分析 ${dateStr}" && git push origin main`, { stdio: 'inherit' });
+  execSync(`cd ${REPO_LOCAL} && git add "kiro/kiro5_劍屏/stock-analysis-reports/reports/${filename}" && git commit -m "add: ${STOCK_NAME}(${STOCK_CODE}) 小助理完整分析 ${dateStr}" && git push origin main`, { stdio: 'inherit' });
 
   console.log(`\n🎉 完成！`);
   console.log(`📎 GitHub: https://github.com/${REPORT_REPO}/blob/main/${encodeURIComponent(filename)}`);
