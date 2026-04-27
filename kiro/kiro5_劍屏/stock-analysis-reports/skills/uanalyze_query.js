@@ -44,10 +44,22 @@ const TOPICS = [
 
 // ── 環境設定 ──────────────────────────────────────────────────────────────
 function setupEnv() {
-  const libDir = '/tmp/libs/extracted/usr/lib/x86_64-linux-gnu';
-  const lib2Dir = '/tmp/libs/extracted/lib/x86_64-linux-gnu';
-  process.env.LD_LIBRARY_PATH = `${libDir}:${lib2Dir}:${process.env.LD_LIBRARY_PATH || ''}`;
-  process.env.FONTCONFIG_FILE = '/tmp/fonts_conf/fonts.conf';
+  process.env.LD_LIBRARY_PATH = `/tmp/playwright-libs:${process.env.LD_LIBRARY_PATH || ''}`;
+}
+
+// ── 人類模擬工具 ──────────────────────────────────────────────────────────
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const rand = (min, max) => Math.floor(Math.random() * (max - min + 1)) + min;
+const humanDelay = () => sleep(rand(800, 2500));
+
+async function humanType(page, selector, text) {
+  await page.click(selector);
+  await sleep(rand(200, 500));
+  await page.keyboard.press('Control+a');
+  await sleep(rand(100, 200));
+  for (const char of text) {
+    await page.keyboard.type(char, { delay: rand(60, 150) });
+  }
 }
 
 // ── 解析 API 回應 ─────────────────────────────────────────────────────────
@@ -68,10 +80,28 @@ async function run() {
   const browser = await chromium.launch({
     headless: true,
     executablePath: CHROME,
-    args: ['--no-sandbox','--disable-setuid-sandbox','--disable-dev-shm-usage','--disable-gpu','--no-zygote']
+    args: [
+      '--no-sandbox','--disable-setuid-sandbox','--disable-dev-shm-usage',
+      '--disable-gpu','--no-zygote',
+      '--headless=new',
+      '--disable-blink-features=AutomationControlled',
+      '--disable-features=IsolateOrigins,site-per-process',
+      '--lang=zh-TW',
+    ]
   });
 
-  const context = await browser.newContext();
+  const context = await browser.newContext({
+    userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+    locale: 'zh-TW',
+    timezoneId: 'Asia/Taipei',
+    extraHTTPHeaders: { 'Accept-Language': 'zh-TW,zh;q=0.9,en;q=0.8' },
+  });
+  // Hide webdriver flag
+  await context.addInitScript(() => {
+    Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+    Object.defineProperty(navigator, 'plugins', { get: () => [1,2,3,4,5] });
+    window.chrome = { runtime: {} };
+  });
   const page = await context.newPage();
   await page.setViewportSize({ width: 1280, height: 900 });
 
@@ -117,16 +147,18 @@ async function run() {
   // ── 登入 ──
   console.log('🔐 登入中...');
   await page.goto('https://pro.uanalyze.com.tw/login-page', { waitUntil: 'domcontentloaded', timeout: 30000 });
-  await page.waitForTimeout(2000);
-  await page.fill('input[type="email"]', process.env.UANALYZE_USERNAME);
-  await page.fill('input[type="password"]', process.env.UANALYZE_PASSWORD);
+  await sleep(rand(2000, 4000));
+  await humanType(page, 'input[type="email"]', process.env.UANALYZE_USERNAME);
+  await sleep(rand(500, 1000));
+  await humanType(page, 'input[type="password"]', process.env.UANALYZE_PASSWORD);
+  await sleep(rand(500, 1200));
   await page.press('input[type="password"]', 'Enter');
-  await page.waitForTimeout(5000);
+  await sleep(rand(4000, 6000));
   console.log('✅ 登入成功');
 
   // ── 進入產業資料庫 ──
   await page.goto('https://pro.uanalyze.com.tw/lab/dashboard/lynch-tengrower', { waitUntil: 'domcontentloaded', timeout: 30000 });
-  await page.waitForTimeout(3000);
+  await sleep(rand(2000, 4000));
 
   // 關閉彈窗
   await page.evaluate(() => {
@@ -139,22 +171,23 @@ async function run() {
   console.log(`🔍 搜尋 ${STOCK_CODE}...`);
   const input = await page.$('input[placeholder*="股票"]');
   await input.click({ force: true });
-  await input.fill(STOCK_CODE);
-  await page.waitForTimeout(1000);
+  await sleep(rand(300, 700));
+  for (const char of STOCK_CODE) {
+    await page.keyboard.type(char, { delay: rand(80, 160) });
+  }
+  await sleep(rand(800, 1500));
   await page.keyboard.press('Enter');
-  await page.waitForTimeout(6000);
-  // guides API 在這裡觸發
+  await sleep(rand(5000, 8000));
 
   // ── 進入小助理 ──
   console.log('📋 進入小助理...');
   await page.locator('text=小助理').first().click({ force: true });
-  await page.waitForTimeout(4000);
-  // EPS consensus API 在這裡觸發
+  await sleep(rand(3000, 5000));
 
   await page.evaluate(() => {
     Array.from(document.querySelectorAll('button')).forEach(b => { if(b.textContent.includes('我知道了')) b.click(); });
   });
-  await page.waitForTimeout(500);
+  await sleep(rand(300, 700));
 
   // ── 逐一點擊主題按鈕 ──
   console.log('🔘 查詢所有主題...');
@@ -168,7 +201,7 @@ async function run() {
       );
       if (target) target.click();
     }, topic);
-    await page.waitForTimeout(8000);
+    await sleep(rand(7000, 10000));
   }
 
   await browser.close();
