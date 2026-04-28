@@ -108,27 +108,6 @@ function buildChartSection(labId, singleKey, chartData) {
     return s + '\n';
   }
 
-  // 月營收YoY / 存貨（41642）
-  if (id === '41642') {
-    const monthly = d.monthly?.data?.data;
-    if (!monthly) return '';
-    const yoy = monthly['raw70008']?.Data || {};
-    const rev = Object.values(monthly).find(v => v.ChineseAccount?.includes('月營收') && !v.ChineseAccount?.includes('年增'))?.Data || {};
-    const recent = recentEntries(yoy, 6);
-    if (recent.length === 0) return '';
-
-    let s = `> **📊 月營收 YoY（最近 6 個月）**\n>\n`;
-    s += `> | 月份 | 月營收(千元) | YoY(%) |\n> |------|---:|:---:|\n`;
-    recent.forEach(([m, y]) => {
-      s += `> | ${m} | ${fmt(rev[m])} | ${y} |\n`;
-    });
-    const lastYoy = recent[recent.length - 1]?.[1];
-    if (lastYoy != null) {
-      s += `>\n> **趨勢**：最新月 YoY ${lastYoy >= 0 ? '↑' : '↓'} ${lastYoy}%\n`;
-    }
-    return s + '\n';
-  }
-
   // 費用率/ROIC（41615）
   if (id === '41615') {
     const capex = d.capex?.data?.data;
@@ -143,6 +122,77 @@ function buildChartSection(labId, singleKey, chartData) {
       s += `> | ${q} | ${fmt(v)} | ${fmt(capexRatio?.PeriodData?.[q])} |\n`;
     });
     return s + '\n';
+  }
+
+  // 存貨相關（41642）
+  if (id === '41642') {
+    const inv = d.inv?.data?.data;
+    const invDetail = d.invDetail?.data?.data;
+    const contract = d.contract?.data?.data;
+    const turnover = d.turnover?.data?.data;
+    let s = '';
+
+    // 存銷比
+    if (inv) {
+      const invAmt = Object.values(inv).find(v => v.ChineseAccount?.includes('存貨'));
+      const revAmt = Object.values(inv).find(v => v.ChineseAccount?.includes('月營收'));
+      const ratio = Object.values(inv).find(v => v.ChineseAccount?.includes('存銷比'));
+      if (ratio?.Data) {
+        s += `> **📊 存貨銷售比（最近 6 個月）**\n>\n`;
+        s += `> | 月份 | 存貨(千元) | 月營收(千元) | 存銷比 |\n> |------|---:|---:|:---:|\n`;
+        recentEntries(ratio.Data, 6).forEach(([m, r]) => {
+          s += `> | ${m} | ${fmt(invAmt?.Data?.[m])} | ${fmt(revAmt?.Data?.[m])} | ${r} |\n`;
+        });
+        const lastRatio = recentEntries(ratio.Data, 1)[0]?.[1];
+        if (lastRatio) s += `>\n> **趨勢**：最新存銷比 ${lastRatio}（>1 代表存貨偏高）\n`;
+        s += '\n';
+      }
+    }
+
+    // 存貨細項
+    if (invDetail) {
+      const raw = Object.values(invDetail).find(v => v.ChineseAccount === '原料');
+      const wip = Object.values(invDetail).find(v => v.ChineseAccount === '在製品');
+      const fg = Object.values(invDetail).find(v => v.ChineseAccount === '製成品');
+      if (wip?.PeriodData) {
+        s += `> **📊 存貨細項（最近 4 季，千元）**\n>\n`;
+        s += `> | 季度 | 原料 | 在製品 | 製成品 |\n> |------|---:|---:|---:|\n`;
+        recentEntries(wip.PeriodData, 4).forEach(([q, w]) => {
+          s += `> | ${q} | ${fmt(raw?.PeriodData?.[q])} | ${fmt(w)} | ${fmt(fg?.PeriodData?.[q])} |\n`;
+        });
+        s += '\n';
+      }
+    }
+
+    // 合約負債
+    if (contract) {
+      const cl = Object.values(contract).find(v => v.ChineseAccount?.includes('合約負債') && !v.ChineseAccount?.includes('比重'));
+      const clRatio = Object.values(contract).find(v => v.ChineseAccount?.includes('比重'));
+      if (cl?.PeriodData) {
+        s += `> **📊 合約負債佔季營收比重（最近 4 季）**\n>\n`;
+        s += `> | 季度 | 合約負債(千元) | 佔季營收(%) |\n> |------|---:|:---:|\n`;
+        recentEntries(cl.PeriodData, 4).forEach(([q, v]) => {
+          s += `> | ${q} | ${fmt(v)} | ${fmt(clRatio?.PeriodData?.[q])} |\n`;
+        });
+        s += '\n';
+      }
+    }
+
+    // 存貨週轉率
+    if (turnover) {
+      const tr = Object.values(turnover).find(v => v.ChineseAccount?.includes('週轉率'));
+      const gm = Object.values(turnover).find(v => v.ChineseAccount?.includes('毛利率'));
+      if (tr?.PeriodData) {
+        s += `> **📊 存貨週轉率 & 毛利率（最近 4 季）**\n>\n`;
+        s += `> | 季度 | 存貨週轉率 | 毛利率(%) |\n> |------|:---:|:---:|\n`;
+        recentEntries(tr.PeriodData, 4).forEach(([q, v]) => {
+          s += `> | ${q} | ${v} | ${fmt(gm?.PeriodData?.[q])} |\n`;
+        });
+        s += '\n';
+      }
+    }
+
+    return s || '';
   }
 
   return '';
@@ -217,6 +267,10 @@ async function run() {
       revTrack: await get(`${base}/RevenueTrackingActualVSForecastModule/${stock}`),
       capex:    await get(`${base}/CapexToSalesRatio/${stock}`),
       epsHist:  await get(`${base}/HustoricalForecastEPS_Value_Yearly/${stock}`),
+      inv:      await get(`${base}/InventoryToRecentSales/${stock}`),
+      invDetail: await get(`${base}/InventoriesDatailOriginal/${stock}`),
+      contract: await get(`${base}/CurrentContractLiabilitiesVSRevenue/${stock}`),
+      turnover: await get(`${base}/InventoriesTurnoverTimes_Revenue_GrossMargin/${stock}`),
     };
   }, [STOCK_CODE, accessToken, tokenType]);
 
@@ -238,6 +292,10 @@ async function run() {
     revTrack: parse(apiData.revTrack),
     monthly:  parse(apiData.monthly),
     capex:    parse(apiData.capex),
+    inv:      parse(apiData.inv),
+    invDetail: parse(apiData.invDetail),
+    contract: parse(apiData.contract),
+    turnover: parse(apiData.turnover),
   };
 
   console.log(`✅ 自動導航：${stages.length} 個階段，共 ${stages.reduce((n, s) => n + s.steps.length, 0)} 個 STEP`);
