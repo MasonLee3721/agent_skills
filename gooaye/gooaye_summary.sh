@@ -165,13 +165,8 @@ chunks = [transcript[i:i+CHUNK] for i in range(0, len(transcript), CHUNK)]
 if len(chunks) == 1:
     # 單段直接摘要
     summary = groq_chat([
-        {"role": "system", "content": "你是專業的財經 Podcast 摘要助手。請用繁體中文，以結構化方式整理重點。"},
-        {"role": "user", "content": f"""以下是股癌 Podcast 的逐字稿，請整理成：
-
-1. **本集主題**（1-2 句）
-2. **重點摘要**（5-8 個條列重點）
-3. **提到的股票/ETF/市場**
-4. **關鍵觀點**（謝孟恭的核心論點）
+        {"role": "system", "content": "你是專業的財經 Podcast 摘要助手。請用繁體中文，以結構化方式整理重點，詳細說明內容，鉅細靡遺，包含但不局限於 : 他最近在操作上做了什麼? 、想法為何? 思路邏輯、策略分析、市場看法 (包含他關注或提到的具體公司名稱)、對提到的公司標的的看法、預估劇本、市場主題轉換(transition)、應對策略，另外在回覆聽眾問答階段的部分，也依據以上原則說明與股市、投資、金融、科技產業趨勢、交易市場等部分。 以上採用內容的時間軸為順序來整理並說明。提示: 越詳細越好。"},
+        {"role": "user", "content": f"""以下是股癌 Podcast 的逐字稿，請依照系統指示整理成詳細摘要：
 
 逐字稿：
 {chunks[0]}"""}
@@ -182,7 +177,7 @@ else:
     for i, chunk in enumerate(chunks, 1):
         print(f"  摘要第 {i}/{len(chunks)} 段...", flush=True)
         s = groq_chat([
-            {"role": "system", "content": "你是專業的財經 Podcast 摘要助手。"},
+            {"role": "system", "content": "你是專業的財經 Podcast 摘要助手。請用繁體中文，以結構化方式整理重點，詳細說明內容，鉅細靡遺，包含但不局限於 : 他最近在操作上做了什麼? 、想法為何? 思路邏輯、策略分析、市場看法 (包含他關注或提到的具體公司名稱)、對提到的公司標的的看法、預估劇本、市場主題轉換(transition)、應對策略，另外在回覆聽眾問答階段的部分，也依據以上原則說明與股市、投資、金融、科技產業趨勢、交易市場等部分。 以上採用內容的時間軸為順序來整理並說明。提示: 越詳細越好。"},
             {"role": "user", "content": f"請用繁體中文條列出以下逐字稿的重點（5-8 點）：\n\n{chunk}"}
         ], max_tokens=1000)
         partial_summaries.append(f"【第{i}段】\n{s}")
@@ -190,7 +185,7 @@ else:
     combined = "\n\n".join(partial_summaries)
     print("  合併摘要...", flush=True)
     summary = groq_chat([
-        {"role": "system", "content": "你是專業的財經 Podcast 摘要助手。請用繁體中文，以結構化方式整理重點。"},
+        {"role": "system", "content": "你是專業的財經 Podcast 摘要助手。請用繁體中文，以結構化方式整理重點，詳細說明內容，鉅細靡遺，包含但不局限於 : 他最近在操作上做了什麼? 、想法為何? 思路邏輯、策略分析、市場看法 (包含他關注或提到的具體公司名稱)、對提到的公司標的的看法、預估劇本、市場主題轉換(transition)、應對策略，另外在回覆聽眾問答階段的部分，也依據以上原則說明與股市、投資、金融、科技產業趨勢、交易市場等部分。 以上採用內容的時間軸為順序來整理並說明。提示: 越詳細越好。"},
         {"role": "user", "content": f"""以下是股癌 Podcast 各段的重點摘要，請整合成最終版本：
 
 1. **本集主題**（1-2 句）
