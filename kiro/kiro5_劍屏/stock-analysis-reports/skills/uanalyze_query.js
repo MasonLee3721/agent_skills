@@ -97,18 +97,28 @@ async function run() {
     Array.from(document.querySelectorAll('button')).forEach(b => { if(b.textContent.includes('我知道了')) b.click(); });
   });
 
-  // 搜尋股票（觸發 guides + EPS API，並讓 cookie 帶上 stock_code）
-  const input = await page.$('input.react-autosuggest__input');
-  await input.click({ force: true });
-  await input.fill(STOCK_CODE);
-  await sleep(1500);
-  const suggestions = await page.$$('.react-autosuggest__suggestion');
-  if (suggestions.length > 0) {
-    await suggestions[0].click();
+  // 判斷是否為台股（純數字代號）
+  const isTW = /^\d+$/.test(STOCK_CODE);
+
+  if (isTW) {
+    // 台股：搜尋框選股，觸發 guides + EPS API
+    const input = await page.$('input.react-autosuggest__input');
+    await input.click({ force: true });
+    await input.fill(STOCK_CODE);
+    await sleep(1500);
+    const suggestions = await page.$$('.react-autosuggest__suggestion');
+    if (suggestions.length > 0) {
+      await suggestions[0].click();
+      await sleep(6000);
+    } else {
+      await page.keyboard.press('Enter');
+      await sleep(6000);
+    }
   } else {
-    await page.keyboard.press('Enter');
+    // 美股：直接跳過搜尋框，token 已取得即可
+    console.log('  ℹ️ 美股模式，跳過搜尋框');
+    await sleep(1000);
   }
-  await sleep(6000); // 等 guides + EPS API 完成
 
   // ── 取得 access_token ──
   const cookies = await context.cookies();
@@ -145,15 +155,20 @@ async function run() {
     } catch(e) {}
   });
 
-  // 重新搜尋一次確保 guides/EPS 被攔截
-  await input.click({ force: true });
-  await input.fill('');
-  await sleep(300);
-  await input.fill(STOCK_CODE);
-  await sleep(1500);
-  const suggestions2 = await page.$$('.react-autosuggest__suggestion');
-  if (suggestions2.length > 0) await suggestions2[0].click();
-  await sleep(6000);
+  // 重新搜尋一次確保 guides/EPS 被攔截（僅台股）
+  if (isTW) {
+    const input2 = await page.$('input.react-autosuggest__input');
+    await input2.click({ force: true });
+    await input2.fill('');
+    await sleep(300);
+    await input2.fill(STOCK_CODE);
+    await sleep(1500);
+    const suggestions2 = await page.$$('.react-autosuggest__suggestion');
+    if (suggestions2.length > 0) {
+      await suggestions2[0].click();
+      await sleep(6000);
+    }
+  }
 
   // ── 直接 POST completions API 取得每個主題 ──
   console.log('📋 查詢小助理主題...');
