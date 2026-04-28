@@ -1,8 +1,17 @@
 #!/usr/bin/env node
 /**
- * Skill: 優分析小助理完整查詢（API 直接呼叫版）
+ * Skill: 優分析小助理完整查詢
  * 使用方式: node uanalyze_query.js <股票代號> [股票名稱]
- * 例: node uanalyze_query.js 2330 台積電
+ * 例: node uanalyze_query.js 2303 聯電
+ *
+ * version: 2.0.0
+ * updated: 2026-04-28
+ * changelog:
+ *   v2.0.0 - 改用 POST completions API 直接呼叫，不再導航到小助理頁面
+ *            （/38364 在 headless 環境下會 crash）
+ *            正確 API: POST https://data.uanalyze.twobitto.com/completions
+ *            需帶 Authorization: Bearer <access_token>
+ *   v1.0.0 - 原版 CDP 攔截 + 主題點擊（已廢棄）
  */
 
 const { chromium } = require('/home/agent/.npm/_npx/e41f203b7505f1fb/node_modules/playwright');
@@ -15,8 +24,26 @@ const REPORT_REPO = process.env.REPORT_REPO || 'MasonLee3721/agent_skills';
 const REPO_LOCAL = '/tmp/agent_skills';
 const REPORT_DIR = `${REPO_LOCAL}/kiro/kiro5_劍屏/stock-analysis-reports/reports`;
 const CHROME = '/home/agent/.cache/ms-playwright/chromium-1217/chrome-linux64/chrome';
+const AI_HOST = 'https://data.uanalyze.twobitto.com';
+
+const TOPICS = [
+  '近況發展','產業趨勢','產品線分析','長短期展望','供需分析',
+  '觀察重點','利多因素','利空因素','接單狀況','資本支出',
+  '時間表','同業競爭','護城河分析','重要數字','公司概覽','銷售地區','併購分析'
+];
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
+const rand = (min, max) => Math.floor(Math.random() * (max - min + 1)) + min;
+
+function parseContent(rawStr) {
+  try {
+    const p = JSON.parse(rawStr);
+    if (p.data?.text) return p.data.text;
+    if (p.text?.answer) return p.text.answer;
+    if (typeof p.text === 'string') return p.text;
+    return rawStr;
+  } catch(e) { return rawStr; }
+}
 
 async function run() {
   process.env.LD_LIBRARY_PATH = `/tmp/playwright-libs:${process.env.LD_LIBRARY_PATH || ''}`;
@@ -49,56 +76,125 @@ async function run() {
   });
   await sleep(300);
   await page.fill('input[type="email"]', process.env.UANALYZE_USERNAME);
-  await sleep(400);
+  await sleep(rand(60, 150));
   await page.fill('input[type="password"]', process.env.UANALYZE_PASSWORD);
-  await sleep(400);
+  await sleep(rand(60, 150));
   const loginBtn = await page.$('button[type="submit"]');
   if (loginBtn) await loginBtn.click({ force: true });
   await sleep(5000);
   if (page.url().includes('login')) throw new Error('登入失敗');
   console.log('✅ 登入成功');
 
-  // ── 用 page.evaluate 呼叫所有 API（帶 cookie）──
-  console.log(`📊 查詢 ${STOCK_CODE} ${STOCK_NAME}...`);
+  // ── 進入 EnterpriseInsight 並搜尋股票（讓 cookie/token 正確設定）──
+  console.log(`🔍 搜尋 ${STOCK_CODE}...`);
+  await page.goto('https://pro.uanalyze.com.tw/lab/dashboard/lynch-tengrower/EnterpriseInsight', {
+    waitUntil: 'domcontentloaded', timeout: 30000
+  });
+  await sleep(3000);
+  await page.evaluate(() => {
+    document.querySelectorAll('.modal-backdrop,.modal,.new-version').forEach(el => el.remove());
+    document.body.classList.remove('modal-open');
+    Array.from(document.querySelectorAll('button')).forEach(b => { if(b.textContent.includes('我知道了')) b.click(); });
+  });
 
-  // 取得 Bearer token（從 cookies）
+  // 搜尋股票（觸發 guides + EPS API，並讓 cookie 帶上 stock_code）
+  const input = await page.$('input.react-autosuggest__input');
+  await input.click({ force: true });
+  await input.fill(STOCK_CODE);
+  await sleep(1500);
+  const suggestions = await page.$$('.react-autosuggest__suggestion');
+  if (suggestions.length > 0) {
+    await suggestions[0].click();
+  } else {
+    await page.keyboard.press('Enter');
+  }
+  await sleep(6000); // 等 guides + EPS API 完成
+
+  // ── 取得 access_token ──
   const cookies = await context.cookies();
-  const bearerToken = cookies.find(c => c.name === 'access_token')?.value || '';
+  const accessToken = cookies.find(c => c.name === 'access_token')?.value;
+  const tokenType = cookies.find(c => c.name === 'token_type')?.value || 'Bearer';
+  if (!accessToken) throw new Error('找不到 access_token，請確認登入成功');
+  console.log('✅ 取得 access_token');
 
-  // 用 page.evaluate 呼叫所有 API
-  const apiResults = await page.evaluate(async ([code, token]) => {
-    const fetchApi = async (url, useBearer) => {
-      const headers = {
-        'Accept': 'application/json, text/plain, */*',
-        'Referer': 'https://pro.uanalyze.com.tw/',
-      };
-      if (useBearer && token) headers['Authorization'] = `Bearer ${token}`;
-      const resp = await fetch(url, { credentials: 'include', headers });
-      return await resp.text();
-    };
-    return {
-      assist: await fetchApi(`https://data.uanalyze.twobitto.com/api/assist/reports?stock=${code}`, true),
-      guides: await fetchApi(`https://data.uanalyze.twobitto.com/api/guides/${code}`, true),
-      eps: await fetchApi(`https://cronjob.uanalyze.com.tw/data_fetch/api/EPSRevenueConsensusEstimate/${code}`, false),
-      ai: await fetchApi(`https://data.uanalyze.twobitto.com/api/ai/reports?stock=${code}&ai_model=gpt-4.1-mini`, true).catch(() => null),
-    };
-  }, [STOCK_CODE, bearerToken]);
+  // ── 用 CDP 攔截 guides + EPS ──
+  const client = await context.newCDPSession(page);
+  await client.send('Network.enable');
+  const pending = {};
+  const captured = { guides: null, eps: null };
+
+  client.on('Network.responseReceived', e => {
+    const url = e.response.url;
+    if (url.includes('twobitto') || url.includes('cronjob')) {
+      pending[e.requestId] = url;
+    }
+  });
+  client.on('Network.loadingFinished', async e => {
+    if (!pending[e.requestId]) return;
+    try {
+      const b = await client.send('Network.getResponseBody', { requestId: e.requestId });
+      const text = b.base64Encoded ? Buffer.from(b.body, 'base64').toString() : b.body;
+      const url = pending[e.requestId];
+      if (url.includes('/api/guides/')) {
+        captured.guides = text;
+        console.log(`  ✅ guides (${text.length}b)`);
+      } else if (url.includes('EPSRevenueConsensusEstimate')) {
+        captured.eps = text;
+        console.log(`  ✅ EPS data (${text.length}b)`);
+      }
+    } catch(e) {}
+  });
+
+  // 重新搜尋一次確保 guides/EPS 被攔截
+  await input.click({ force: true });
+  await input.fill('');
+  await sleep(300);
+  await input.fill(STOCK_CODE);
+  await sleep(1500);
+  const suggestions2 = await page.$$('.react-autosuggest__suggestion');
+  if (suggestions2.length > 0) await suggestions2[0].click();
+  await sleep(6000);
+
+  // ── 直接 POST completions API 取得每個主題 ──
+  console.log('📋 查詢小助理主題...');
+  const completions = {};
+
+  for (const topic of TOPICS) {
+    process.stdout.write(`  查詢「${topic}」...`);
+    try {
+      const result = await page.evaluate(async ([host, topic, stock, token, tokenType]) => {
+        const url = `${host}/completions?prompt=${encodeURIComponent(topic)}&stock=${stock}`;
+        const body = `prompt=${encodeURIComponent(topic)}&stock=${stock}`;
+        const resp = await fetch(url, {
+          method: 'POST',
+          credentials: 'include',
+          headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+            'Authorization': `${tokenType} ${token}`,
+            'Accept': 'application/json',
+            'Referer': 'https://pro.uanalyze.com.tw/',
+          },
+          body
+        });
+        const text = await resp.text();
+        return { status: resp.status, text };
+      }, [AI_HOST, topic, STOCK_CODE, accessToken, tokenType]);
+
+      if (result.status === 200) {
+        const content = parseContent(result.text);
+        completions[topic] = content;
+        console.log(` ✅ (${result.text.length}b)`);
+      } else {
+        console.log(` ❌ status ${result.status}`);
+      }
+    } catch(e) {
+      console.log(` ❌ ${e.message}`);
+    }
+    await sleep(rand(1000, 2000)); // 避免太快被 rate limit
+  }
 
   await browser.close();
-
-  // 解析結果
-  const assistData = JSON.parse(apiResults.assist);
-  const assistText = assistData.data?.text || '';
-  console.log(`  ✅ 小助理報告 (${assistText.length}b)`);
-
-  const guidesData = JSON.parse(apiResults.guides);
-  console.log(`  ✅ 自動導航 (${guidesData.data?.stages?.length || 0} 階段)`);
-
-  const epsData = JSON.parse(apiResults.eps);
-  console.log(`  ✅ EPS 資料 (${apiResults.eps.length}b)`);
-
-  const aiData = apiResults.ai ? JSON.parse(apiResults.ai) : null;
-  if (aiData) console.log(`  ✅ AI 評分 (${apiResults.ai.length}b)`);
+  console.log(`\n📊 已取得 ${Object.keys(completions).length}/${TOPICS.length} 個主題`);
 
   // ── 建立 Markdown 報告 ──
   console.log('📝 建立報告...');
@@ -109,62 +205,68 @@ async function run() {
   let report = '';
 
   // 1. 自動導航
-  if (guidesData.data?.stages?.length > 0) {
-    report += `# ${STOCK_NAME}（${STOCK_CODE}）自動導航\n\n`;
-    report += `> 資料來源：優分析 UAnalyze 產業資料庫 - 自動導航\n\n---\n\n`;
-    guidesData.data.stages.forEach(stage => {
-      report += `## ${stage.name}\n\n`;
-      (stage.steps || []).forEach(step => {
-        report += `### STEP：${step.name}\n\n`;
-        if (step.metadata?.ref) step.metadata.ref.forEach(r => { if (r.content) report += r.content + '\n\n'; });
-        if (step.metadata?.why) report += `> **為什麼看這個？** ${step.metadata.why}\n\n`;
-        if (step.metadata?.guide) report += `> **指引：** ${step.metadata.guide}\n\n`;
-      });
-      report += `---\n\n`;
-    });
+  if (captured.guides) {
+    try {
+      const guidesData = JSON.parse(captured.guides);
+      if (guidesData.data?.stages?.length > 0) {
+        report += `# ${STOCK_NAME}（${STOCK_CODE}）自動導航\n\n`;
+        report += `> 資料來源：優分析 UAnalyze 產業資料庫 - 自動導航\n\n---\n\n`;
+        guidesData.data.stages.forEach(stage => {
+          report += `## ${stage.name}\n\n`;
+          (stage.steps || []).forEach(step => {
+            report += `### STEP：${step.name}\n\n`;
+            if (step.metadata?.ref) step.metadata.ref.forEach(r => { if (r.content) report += r.content + '\n\n'; });
+            if (step.metadata?.why) report += `> **為什麼看這個？** ${step.metadata.why}\n\n`;
+            if (step.metadata?.guide) report += `> **指引：** ${step.metadata.guide}\n\n`;
+          });
+          report += `---\n\n`;
+        });
+      }
+    } catch(e) { console.log('guides parse error:', e.message); }
   }
 
   // 2. EPS 預估表格
-  if (epsData.data?.data) {
-    const d = epsData.data.data;
-    const rev = d['ua50189_cp']?.Data || {};
-    const eps = d['ua50187_cp']?.Data || {};
-    const coreEps = d['ua50209_cp']?.Data || {};
-    if (Object.keys(rev).length > 0) {
-      report += `\n# ${STOCK_NAME}（${STOCK_CODE}）法人預估 EPS & 營收共識統計\n\n`;
-      report += `> 資料來源：優分析 UAnalyze - EPSRevenueConsensusEstimate  \n`;
-      report += `> 單位：營收（百萬元）、EPS（元）\n\n`;
-      report += `| 年度 | 法人平均預估營收（百萬元） | 法人平均預估EPS（元） | 法人平均預估本業EPS（元） |\n`;
-      report += `|------|:---:|:---:|:---:|\n`;
-      Object.keys(rev).forEach(year => {
-        const label = year.includes('(f)') ? `**${year}**` : year;
-        report += `| ${label} | ${rev[year] ?? '-'} | ${eps[year] ?? '-'} | ${coreEps[year] ?? '-'} |\n`;
-      });
-      report += `\n> **(f) = 法人預估值**\n\n---\n\n`;
-    }
+  if (captured.eps) {
+    try {
+      const epsData = JSON.parse(captured.eps);
+      const d = epsData.data?.data;
+      if (d) {
+        const rev = d['ua50189_cp']?.Data || {};
+        const eps = d['ua50187_cp']?.Data || {};
+        const coreEps = d['ua50209_cp']?.Data || {};
+        if (Object.keys(rev).length > 0) {
+          report += `\n# ${STOCK_NAME}（${STOCK_CODE}）法人預估 EPS & 營收共識統計\n\n`;
+          report += `> 資料來源：優分析 UAnalyze - EPSRevenueConsensusEstimate  \n`;
+          report += `> 單位：營收（百萬元）、EPS（元）\n\n`;
+          report += `| 年度 | 法人平均預估營收（百萬元） | 法人平均預估EPS（元） | 法人平均預估本業EPS（元） |\n`;
+          report += `|------|:---:|:---:|:---:|\n`;
+          Object.keys(rev).forEach(year => {
+            const label = year.includes('(f)') ? `**${year}**` : year;
+            report += `| ${label} | ${rev[year] ?? '-'} | ${eps[year] ?? '-'} | ${coreEps[year] ?? '-'} |\n`;
+          });
+          report += `\n> **(f) = 法人預估值**\n\n---\n\n`;
+        }
+      }
+    } catch(e) { console.log('eps parse error:', e.message); }
   }
 
-  // 3. AI 評分
-  if (aiData?.data?.scores) {
-    report += `\n# ${STOCK_NAME}（${STOCK_CODE}）AI 成長股評分\n\n`;
-    report += `> 資料來源：優分析 UAnalyze - AI Reports (gpt-4.1-mini)\n\n`;
-    aiData.data.scores.forEach(s => {
-      report += `## ${s.name}：${s.score}分\n\n`;
-      (s.items || []).forEach(item => {
-        report += `- **${item.reason}**`;
-        if (item.detail) report += `：${item.detail}`;
-        report += '\n';
-      });
-      report += '\n';
-    });
-    report += `---\n\n`;
-  }
-
-  // 4. 小助理完整分析
+  // 3. 小助理各主題
   report += `\n# ${STOCK_NAME}（${STOCK_CODE}）小助理完整分析報告\n\n`;
   report += `> **查詢日期**：${today}  \n`;
-  report += `> **資料來源**：優分析 UAnalyze 產業資料庫 - 小助理  \n\n---\n\n`;
-  report += assistText + '\n\n---\n\n';
+  report += `> **資料來源**：優分析 UAnalyze 產業資料庫 - 小助理  \n`;
+  report += `> **股票**：${STOCK_CODE} ${STOCK_NAME}\n\n---\n\n`;
+
+  // 目錄
+  report += `## 目錄\n\n`;
+  TOPICS.forEach((topic, i) => { report += `${i+1}. [${topic}](#${i+1})\n`; });
+  report += `\n---\n\n`;
+
+  TOPICS.forEach((topic, i) => {
+    report += `## ${i+1}. ${topic}\n\n`;
+    const content = completions[topic];
+    if (!content) { report += `> 無相關資料\n\n---\n\n`; return; }
+    report += content + '\n\n---\n\n';
+  });
 
   fs.mkdirSync(REPORT_DIR, { recursive: true });
   const filepath = `${REPORT_DIR}/${filename}`;
@@ -173,10 +275,21 @@ async function run() {
 
   // ── Push 到 GitHub ──
   console.log('🚀 Push 到 GitHub...');
+  // 先 clone 或 pull repo
+  if (!fs.existsSync(REPO_LOCAL)) {
+    const ghToken = execSync('gh auth token', { encoding: 'utf8' }).trim();
+    execSync(`git clone "https://${ghToken}@github.com/${REPORT_REPO}.git" ${REPO_LOCAL}`, { stdio: 'pipe' });
+  }
   const ghToken = execSync('gh auth token', { encoding: 'utf8' }).trim();
   execSync(`cd ${REPO_LOCAL} && git config user.email "kiro5@uanalyze" && git config user.name "MuJianping"`, { stdio: 'pipe' });
   execSync(`cd ${REPO_LOCAL} && git remote set-url origin "https://${ghToken}@github.com/${REPORT_REPO}.git"`, { stdio: 'pipe' });
   execSync(`cd ${REPO_LOCAL} && git pull origin main --rebase 2>/dev/null || true`, { stdio: 'pipe' });
+
+  // 複製報告到 repo
+  const repoReportDir = `${REPO_LOCAL}/kiro/kiro5_劍屏/stock-analysis-reports/reports`;
+  fs.mkdirSync(repoReportDir, { recursive: true });
+  fs.copyFileSync(filepath, `${repoReportDir}/${filename}`);
+
   execSync(`cd ${REPO_LOCAL} && git add "kiro/kiro5_劍屏/stock-analysis-reports/reports/${filename}" && git commit -m "add: ${STOCK_NAME}(${STOCK_CODE}) 小助理完整分析 ${dateStr}" && git push origin main`, { stdio: 'inherit' });
 
   console.log(`\n🎉 完成！`);
