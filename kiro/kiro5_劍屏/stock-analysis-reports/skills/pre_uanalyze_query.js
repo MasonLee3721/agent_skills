@@ -4,12 +4,12 @@
  * 使用方式: node pre_uanalyze_query.js <股票代號> [股票名稱]
  * 例: node pre_uanalyze_query.js 3533 嘉澤
  *
- * version: 1.0.0
+ * version: 1.1.0
  * updated: 2026-04-28
  * changelog:
+ *   v1.1.0 - 新增圖表數據：股票分類評分、月營收YoY、EPS上下修趨勢、
+ *            資本支出比重、關鍵發展（assist）
  *   v1.0.0 - 從 guides API 抓取自動導航完整內容（含 EPS 共識統計）
- *            API: GET https://data.uanalyze.twobitto.com/api/guides/<stock>
- *            需帶 Authorization: Bearer <access_token>
  */
 
 const { chromium } = require('/home/agent/.npm/_npx/e41f203b7505f1fb/node_modules/playwright');
@@ -74,35 +74,40 @@ async function run() {
   if (!accessToken) throw new Error('找不到 access_token');
   console.log('✅ 取得 access_token');
 
-  // ── 呼叫 guides API ──
-  console.log(`📋 查詢 ${STOCK_CODE} 自動導航...`);
-  const guidesRaw = await page.evaluate(async ([stock, token, tokenType]) => {
-    const resp = await fetch(`https://data.uanalyze.twobitto.com/api/guides/${stock}`, {
-      credentials: 'include',
-      headers: { 'Authorization': `${tokenType} ${token}` }
-    });
-    return await resp.text();
+  // ── 呼叫所有 API ──
+  console.log(`📋 查詢 ${STOCK_CODE} 資料...`);
+  const apiData = await page.evaluate(async ([stock, token, tokenType]) => {
+    const get = async (url) => {
+      const resp = await fetch(url, {
+        credentials: 'include',
+        headers: { 'Authorization': `${tokenType} ${token}` }
+      });
+      return await resp.text();
+    };
+    return {
+      guides:   await get(`https://data.uanalyze.twobitto.com/api/guides/${stock}`),
+      eps:      await get(`https://cronjob.uanalyze.com.tw/data_fetch/api/EPSRevenueConsensusEstimate/${stock}`),
+      ai:       await get(`https://data.uanalyze.twobitto.com/api/ai/reports?stock=${stock}&ai_model=gpt-4.1-mini`),
+      monthly:  await get(`https://cronjob.uanalyze.com.tw/data_fetch/api/MonthlyRevenueAndYoY/${stock}`),
+      epsHist:  await get(`https://cronjob.uanalyze.com.tw/data_fetch/api/HustoricalForecastEPS_Value_Yearly/${stock}`),
+      capex:    await get(`https://cronjob.uanalyze.com.tw/data_fetch/api/CapexToSalesRatio/${stock}`),
+      assist:   await get(`https://data.uanalyze.twobitto.com/api/assist/reports?stock=${stock}`),
+    };
   }, [STOCK_CODE, accessToken, tokenType]);
-
-  // ── 呼叫 EPS API ──
-  console.log(`📊 查詢 EPS 共識統計...`);
-  const epsRaw = await page.evaluate(async (stock) => {
-    const resp = await fetch(`https://cronjob.uanalyze.com.tw/data_fetch/api/EPSRevenueConsensusEstimate/${stock}`, {
-      credentials: 'include'
-    });
-    return await resp.text();
-  }, STOCK_CODE);
 
   await browser.close();
 
-  // ── 解析 guides ──
-  const guidesData = JSON.parse(guidesRaw);
+  // ── 解析各 API ──
+  const guidesData = JSON.parse(apiData.guides);
   const stages = guidesData.data?.stages || [];
   console.log(`✅ 自動導航：${stages.length} 個階段，共 ${stages.reduce((n, s) => n + s.steps.length, 0)} 個 STEP`);
 
-  // ── 解析 EPS ──
-  const epsData = JSON.parse(epsRaw);
-  const d = epsData.data?.data;
+  const epsData   = JSON.parse(apiData.eps);
+  const aiData    = JSON.parse(apiData.ai);
+  const monthly   = JSON.parse(apiData.monthly);
+  const epsHist   = JSON.parse(apiData.epsHist);
+  const capex     = JSON.parse(apiData.capex);
+  const assist    = JSON.parse(apiData.assist);
 
   // ── 建立 Markdown 報告 ──
   console.log('📝 建立報告...');
@@ -112,20 +117,37 @@ async function run() {
 
   let report = `# ${STOCK_NAME}（${STOCK_CODE}）自動導航分析報告\n\n`;
   report += `> **查詢日期**：${today}  \n`;
-  report += `> **資料來源**：優分析 UAnalyze 產業資料庫 - 自動導航  \n`;
+  report += `> **資料來源**：優分析 UAnalyze 產業資料庫  \n`;
   report += `> **股票**：${STOCK_CODE} ${STOCK_NAME}\n\n---\n\n`;
 
-  // 自動導航各階段
+  // ── 1. 股票分類評分（AI Reports）──
+  if (aiData.data?.scores) {
+    report += `# 股票分類評分\n\n`;
+    aiData.data.scores.forEach(s => {
+      report += `## ${s.name}：${s.score}/100\n\n`;
+      (s.items || []).forEach(item => {
+        report += `- **${item.reason}**`;
+        if (item.process) report += `：${item.process}`;
+        report += '\n';
+      });
+      report += '\n';
+    });
+    if (aiData.data.cycle) report += `> **循環週期**：${aiData.data.cycle}\n\n`;
+    report += `---\n\n`;
+  }
+
+  // ── 2. 關鍵發展（Assist）──
+  if (assist.data?.text) {
+    report += `# 關鍵發展\n\n${assist.data.text}\n\n---\n\n`;
+  }
+
+  // ── 3. 自動導航各階段 ──
   stages.forEach(stage => {
     report += `# ${stage.name}\n\n`;
     (stage.steps || []).forEach(step => {
       report += `## STEP：${step.name}\n\n`;
-      // 主要內容
       const refs = step.metadata?.ref || [];
-      refs.forEach(ref => {
-        if (ref.content) report += ref.content + '\n\n';
-      });
-      // 輔助說明
+      refs.forEach(ref => { if (ref.content) report += ref.content + '\n\n'; });
       if (step.metadata?.why) report += `> **為什麼看這個？** ${step.metadata.why}\n\n`;
       if (step.metadata?.guide) report += `> **指引：** ${step.metadata.guide}\n\n`;
       if (step.description) report += `> ${step.description}\n\n`;
@@ -133,22 +155,72 @@ async function run() {
     });
   });
 
-  // EPS 表格
+  // ── 4. EPS 共識統計表格 ──
+  const d = epsData.data?.data;
   if (d) {
     const rev = d['ua50189_cp']?.Data || {};
     const eps = d['ua50187_cp']?.Data || {};
     const coreEps = d['ua50209_cp']?.Data || {};
     if (Object.keys(rev).length > 0) {
-      report += `\n# ${STOCK_NAME}（${STOCK_CODE}）法人預估 EPS & 營收共識統計\n\n`;
-      report += `> 資料來源：優分析 UAnalyze - EPSRevenueConsensusEstimate  \n`;
+      report += `\n# 法人預估 EPS & 營收共識統計\n\n`;
       report += `> 單位：營收（百萬元）、EPS（元）\n\n`;
-      report += `| 年度 | 法人平均預估營收（百萬元） | 法人平均預估EPS（元） | 法人平均預估本業EPS（元） |\n`;
+      report += `| 年度 | 法人平均預估營收 | 法人平均預估EPS | 法人平均預估本業EPS |\n`;
       report += `|------|:---:|:---:|:---:|\n`;
       Object.keys(rev).forEach(year => {
         const label = year.includes('(f)') ? `**${year}**` : year;
         report += `| ${label} | ${rev[year] ?? '-'} | ${eps[year] ?? '-'} | ${coreEps[year] ?? '-'} |\n`;
       });
-      report += `\n> **(f) = 法人預估值**\n\n`;
+      report += `\n> **(f) = 法人預估值**\n\n---\n\n`;
+    }
+  }
+
+  // ── 5. EPS 上下修趨勢（最近 12 筆）──
+  const epsHistData = epsHist.data?.data;
+  if (epsHistData) {
+    report += `\n# 未來每年EPS預估上下修趨勢（最近資料）\n\n`;
+    Object.entries(epsHistData).forEach(([key, series]) => {
+      const name = series.ChineseAccount || key;
+      const dataPoints = series.Data || {};
+      const recent = Object.entries(dataPoints).slice(-8);
+      if (recent.length === 0) return;
+      report += `**${name}**\n\n`;
+      report += `| 日期 | 預估值 |\n|------|------:|\n`;
+      recent.forEach(([date, val]) => { report += `| ${date} | ${val} |\n`; });
+      report += '\n';
+    });
+    report += `---\n\n`;
+  }
+
+  // ── 6. 月營收 YoY（最近 12 個月）──
+  const monthlyData = monthly.data?.data;
+  if (monthlyData) {
+    const yoy = monthlyData['raw70008'];   // 月營收年增率
+    const rev = Object.entries(monthlyData).find(([k, v]) => v.ChineseAccount?.includes('月營收') && !v.ChineseAccount?.includes('年增'))?.[1];
+    if (yoy?.Data) {
+      report += `\n# 月營收 VS 年增率（最近 12 個月）\n\n`;
+      report += `| 月份 | 月營收年增率(%) | 月營收(千元) |\n|------|:---:|---:|\n`;
+      const recent = Object.entries(yoy.Data).slice(-12);
+      recent.forEach(([month, yoyVal]) => {
+        const revVal = rev?.Data?.[month] ?? '-';
+        report += `| ${month} | ${yoyVal} | ${revVal} |\n`;
+      });
+      report += `\n---\n\n`;
+    }
+  }
+
+  // ── 7. 資本支出佔營收比重（最近 8 季）──
+  const capexData = capex.data?.data;
+  if (capexData) {
+    const capexAmt = Object.values(capexData).find(v => v.ChineseAccount?.includes('資本支出金額'));
+    const capexRatio = Object.values(capexData).find(v => v.ChineseAccount?.includes('佔營收'));
+    if (capexAmt?.PeriodData) {
+      report += `\n# 資本支出佔營收比重（最近 8 季）\n\n`;
+      report += `| 季度 | 資本支出(千元) | 佔營收比重(%) |\n|------|---:|:---:|\n`;
+      Object.entries(capexAmt.PeriodData).slice(-8).forEach(([q, amt]) => {
+        const ratio = capexRatio?.PeriodData?.[q] ?? '-';
+        report += `| ${q} | ${amt?.toLocaleString() ?? '-'} | ${ratio} |\n`;
+      });
+      report += `\n---\n\n`;
     }
   }
 
