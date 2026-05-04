@@ -14,7 +14,7 @@
  *   v1.0.0 - 原版 CDP 攔截 + 主題點擊（已廢棄）
  */
 
-const { chromium } = require('/home/agent/.npm/_npx/e41f203b7505f1fb/node_modules/playwright');
+const { chromium } = require('/tmp/agent_skills/kiro/kiro5_劍屏/stock-analysis-reports/skills/node_modules/playwright');
 const fs = require('fs');
 const { execSync } = require('child_process');
 
