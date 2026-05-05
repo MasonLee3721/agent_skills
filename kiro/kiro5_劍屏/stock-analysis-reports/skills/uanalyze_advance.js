@@ -46,7 +46,14 @@ function parseContent(rawStr) {
 }
 
 async function run() {
-  process.env.LD_LIBRARY_PATH = `/tmp/playwright-libs:${process.env.LD_LIBRARY_PATH || ''}`;
+  // 自動安裝 Playwright libs（持久化路徑，pod 重啟不消失）
+  try {
+    execSync('bash /home/agent/scripts/setup_playwright_libs.sh', { stdio: 'inherit' });
+  } catch(e) {
+    console.error('⚠️  setup_playwright_libs.sh 執行失敗:', e.message);
+  }
+  
+  process.env.LD_LIBRARY_PATH = `/home/agent/playwright-libs/usr/lib/x86_64-linux-gnu:/home/agent/playwright-libs/lib/x86_64-linux-gnu:/home/agent/playwright-libs/usr/lib:${process.env.LD_LIBRARY_PATH || ''}`;
 
   const browser = await chromium.launch({
     headless: true,
