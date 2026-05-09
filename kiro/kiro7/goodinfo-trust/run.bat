@@ -39,9 +39,26 @@ if errorlevel 1 goto error
 echo [6/6] recommend + chart...
 copy /y chart_draw.py chart_draw_bak.py >nul
 copy /y "%SKILL_DIR%chart_draw_win.py" chart_draw.py >nul
-%PYTHON% recommend.py
+%PYTHON% recommend.py > "%TEMP%\recommend_out.txt" 2>&1
+type "%TEMP%\recommend_out.txt"
 copy /y chart_draw_bak.py chart_draw.py >nul
 del chart_draw_bak.py >nul
+
+:: 傳推薦清單文字到 Discord thread
+%PYTHON% -c "
+import sys, os
+sys.path.insert(0, r'C:\Users\swalz\AppData\Roaming\Python\Python314\site-packages')
+sys.path.insert(0, r'C:\openab\goodinfo-scraper')
+os.chdir(r'C:\openab\goodinfo-scraper')
+from discord_send import send_text
+txt = open(r'%TEMP%\recommend_out.txt', encoding='utf-8', errors='ignore').read()
+# 只取推薦清單部分
+start = txt.find('==')
+msg = txt[start:].strip() if start >= 0 else txt.strip()
+# Discord 訊息上限 2000 字
+for i in range(0, len(msg), 1900):
+    send_text(os.environ.get('DISCORD_CHANNEL_ID',''), msg[i:i+1900])
+"
 
 echo Done. Charts: %SCRAPER%\charts\
 goto end
