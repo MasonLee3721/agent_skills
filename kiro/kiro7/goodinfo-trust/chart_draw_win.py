@@ -22,21 +22,51 @@ OUT_DIR = SCRAPER_DIR / 'charts'
 OUT_DIR.mkdir(exist_ok=True)
 
 
-def get_kline(stock_id, months=5):
+def _is_otc(stock_id: str) -> bool:
+    """上櫃判斷：代號開頭 4~9 且非特定上市例外"""
+    try:
+        n = int(stock_id)
+        return 4000 <= n <= 9999
+    except ValueError:
+        return False  # 英文代號（ETF 等）預設上市
+
+def _yf_download(ticker: str, months: int, max_retries: int = 3):
+    """yfinance 下載，遇 rate limit 自動等待重試"""
     import yfinance as yf
-    for suffix in ['.TW', '.TWO']:
+    import random
+    for attempt in range(max_retries):
         try:
-            df = yf.download(f'{stock_id}{suffix}', period=f'{months}mo',
+            df = yf.download(ticker, period=f'{months}mo',
                              interval='1d', progress=False, auto_adjust=True)
             if df is not None and len(df) >= 20:
-                df = df[['Open', 'High', 'Low', 'Close', 'Volume']].copy()
-                df.columns = ['Open', 'High', 'Low', 'Close', 'Volume']
-                df['Volume'] = (df['Volume'] // 1000).astype(int)
-                df.index = pd.to_datetime(df.index.date)
-                df.index.name = 'Date'
                 return df
-        except:
-            continue
+            return None
+        except Exception as e:
+            msg = str(e).lower()
+            if 'rate' in msg or '429' in msg or 'too many' in msg:
+                wait = random.uniform(5, 15)  # 5~15 秒隨機等待
+                print(f"  yfinance rate limit，等待 {wait:.1f}s...")
+                import time; time.sleep(wait)
+            else:
+                return None
+    return None
+
+def get_kline(stock_id, months=5):
+    # 依代號決定先試哪個市場
+    if _is_otc(stock_id):
+        order = ['.TWO', '.TW']
+    else:
+        order = ['.TW', '.TWO']
+
+    for suffix in order:
+        df = _yf_download(f'{stock_id}{suffix}', months)
+        if df is not None:
+            df = df[['Open', 'High', 'Low', 'Close', 'Volume']].copy()
+            df.columns = ['Open', 'High', 'Low', 'Close', 'Volume']
+            df['Volume'] = (df['Volume'] // 1000).astype(int)
+            df.index = pd.to_datetime(df.index.date)
+            df.index.name = 'Date'
+            return df
     return None
 
 
