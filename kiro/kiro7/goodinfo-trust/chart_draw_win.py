@@ -3,6 +3,18 @@
 用法：python chart_draw_win.py 6706
 """
 import sys, warnings
+
+# 確保 user site-packages 在 path 中（Windows subprocess 不繼承 PYTHONPATH）
+import site
+_user_sp = site.getusersitepackages()
+if _user_sp not in sys.path:
+    sys.path.insert(0, _user_sp)
+# AppData\Roaming 版本
+import os as _os
+_roaming_sp = _os.path.join(_os.environ.get("APPDATA",""), "Python", f"Python{sys.version_info.major}{sys.version_info.minor}", "site-packages")
+if _os.path.isdir(_roaming_sp) and _roaming_sp not in sys.path:
+    sys.path.insert(0, _roaming_sp)
+
 import pandas as pd
 import matplotlib.pyplot as plt
 import matplotlib.font_manager as fm
