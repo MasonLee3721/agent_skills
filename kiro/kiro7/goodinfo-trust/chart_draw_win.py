@@ -29,8 +29,8 @@ plt.rcParams['font.family'] = ['Microsoft JhengHei', 'DejaVu Sans']
 plt.rcParams['axes.unicode_minus'] = False
 
 STOCK_ID = sys.argv[1] if len(sys.argv) > 1 else '2330'
-SCRAPER_DIR = Path(__file__).parent.parent.parent.parent.parent / 'goodinfo-scraper'
-OUT_DIR = SCRAPER_DIR / 'charts'
+# 當此檔被 copy 到 goodinfo-scraper/ 後，__file__ 的 parent 就是 goodinfo-scraper/
+OUT_DIR = Path(__file__).parent / 'charts'
 OUT_DIR.mkdir(exist_ok=True)
 
 
