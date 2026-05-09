@@ -2,6 +2,7 @@
 setlocal
 
 set PYTHON="C:\Program Files\Python314\python.exe"
+set PYTHONPATH=C:\Users\swalz\AppData\Roaming\Python\Python314\site-packages;C:\Users\swalz\Python\Python314\site-packages
 set SCRAPER=C:\openab\goodinfo-scraper
 set SKILL_DIR=%~dp0
 set SECRETS=%PYTHON% C:\openab\passkey\secrets_manager.py get
