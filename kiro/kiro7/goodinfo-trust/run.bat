@@ -1,6 +1,15 @@
 @echo off
 setlocal
 
+set LOG=C:\openab\goodinfo_run.log
+if exist "%LOG%" del "%LOG%"
+
+call :run >> "%LOG%" 2>&1
+type "%LOG%"
+exit /b %ERRORLEVEL%
+
+:run
+
 set PYTHON="C:\Program Files\Python314\python.exe"
 set PYTHONPATH=C:\Users\swalz\AppData\Roaming\Python\Python314\site-packages;C:\Users\swalz\Python\Python314\site-packages
 set SCRAPER=C:\openab\goodinfo-scraper
@@ -37,6 +46,7 @@ echo [5/6] screen...
 if errorlevel 1 goto error
 
 echo [6/6] recommend + chart...
+set PYTHONIOENCODING=utf-8
 copy /y chart_draw.py chart_draw_bak.py >nul
 copy /y "%SKILL_DIR%chart_draw_win.py" chart_draw.py >nul
 %PYTHON% recommend.py > "%TEMP%\recommend_out.txt" 2>&1
