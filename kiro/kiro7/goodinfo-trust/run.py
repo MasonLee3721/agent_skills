@@ -67,6 +67,9 @@ shutil.copy2(chart_bak, chart)
 os.remove(chart_bak)
 
 # 印出推薦結果
+import sys, io
+if hasattr(sys.stdout, 'buffer'):
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
 print(open(recommend_out, encoding="utf-8", errors="ignore").read())
 
 # 傳送 Discord
