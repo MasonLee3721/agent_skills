@@ -241,47 +241,40 @@ async function run() {
   if (page.url().includes('login')) throw new Error('登入失敗');
   console.log('✅ 登入成功');
 
-  await page.goto('https://pro.uanalyze.com.tw/lab/dashboard/lynch-tengrower/EnterpriseInsight', {
-    waitUntil: 'domcontentloaded', timeout: 30000
-  });
-  await sleep(3000);
-
+  // 取得 access_token（登入後即可取得，不需導航到 dashboard）
   const cookies = await context.cookies();
   const accessToken = cookies.find(c => c.name === 'access_token')?.value;
   const tokenType = cookies.find(c => c.name === 'token_type')?.value || 'Bearer';
   if (!accessToken) throw new Error('找不到 access_token');
   console.log('✅ 取得 access_token');
 
-  // ── 呼叫所有 API ──
-  console.log(`📋 查詢 ${STOCK_CODE} 資料...`);
-  const apiData = await page.evaluate(async ([stock, token, tokenType]) => {
-    const get = async (url) => {
-      const resp = await fetch(url, {
-        credentials: 'include',
-        headers: { 'Authorization': `${tokenType} ${token}` }
-      });
-      return await resp.text();
-    };
-    const base = 'https://cronjob.uanalyze.com.tw/data_fetch/api';
-    return {
-      guides:   await get(`https://data.uanalyze.twobitto.com/api/guides/${stock}`),
-      eps:      await get(`${base}/EPSRevenueConsensusEstimate/${stock}`),
-      ai:       await get(`https://data.uanalyze.twobitto.com/api/ai/reports?stock=${stock}&ai_model=gpt-4.1-mini`),
-      assist:   await get(`https://data.uanalyze.twobitto.com/api/assist/reports?stock=${stock}`),
-      monthly:  await get(`${base}/MonthlyRevenueAndYoY/${stock}`),
-      cumRev:   await get(`${base}/MonthlyRevenueTrackingConcensuslModule/${stock}`),
-      epsTrack: await get(`${base}/EPSTrackingActualVSForecastModule/${stock}`),
-      revTrack: await get(`${base}/RevenueTrackingActualVSForecastModule/${stock}`),
-      capex:    await get(`${base}/CapexToSalesRatio/${stock}`),
-      epsHist:  await get(`${base}/HustoricalForecastEPS_Value_Yearly/${stock}`),
-      inv:      await get(`${base}/InventoryToRecentSales/${stock}`),
-      invDetail: await get(`${base}/InventoriesDatailOriginal/${stock}`),
-      contract: await get(`${base}/CurrentContractLiabilitiesVSRevenue/${stock}`),
-      turnover: await get(`${base}/InventoriesTurnoverTimes_Revenue_GrossMargin/${stock}`),
-    };
-  }, [STOCK_CODE, accessToken, tokenType]);
-
   await browser.close();
+
+  // ── 用 Node.js fetch 直接呼叫 API（避免 browser 在重型 SPA 頁面 crash）──
+  console.log(`📋 查詢 ${STOCK_CODE} 資料...`);
+  const nodeGet = async (url) => {
+    const resp = await fetch(url, {
+      headers: { 'Authorization': `${tokenType} ${accessToken}` }
+    });
+    return await resp.text();
+  };
+  const base = 'https://cronjob.uanalyze.com.tw/data_fetch/api';
+  const apiData = {
+    guides:    await nodeGet(`https://data.uanalyze.twobitto.com/api/guides/${STOCK_CODE}`),
+    eps:       await nodeGet(`${base}/EPSRevenueConsensusEstimate/${STOCK_CODE}`),
+    ai:        await nodeGet(`https://data.uanalyze.twobitto.com/api/ai/reports?stock=${STOCK_CODE}&ai_model=gpt-4.1-mini`),
+    assist:    await nodeGet(`https://data.uanalyze.twobitto.com/api/assist/reports?stock=${STOCK_CODE}`),
+    monthly:   await nodeGet(`${base}/MonthlyRevenueAndYoY/${STOCK_CODE}`),
+    cumRev:    await nodeGet(`${base}/MonthlyRevenueTrackingConcensuslModule/${STOCK_CODE}`),
+    epsTrack:  await nodeGet(`${base}/EPSTrackingActualVSForecastModule/${STOCK_CODE}`),
+    revTrack:  await nodeGet(`${base}/RevenueTrackingActualVSForecastModule/${STOCK_CODE}`),
+    capex:     await nodeGet(`${base}/CapexToSalesRatio/${STOCK_CODE}`),
+    epsHist:   await nodeGet(`${base}/HustoricalForecastEPS_Value_Yearly/${STOCK_CODE}`),
+    inv:       await nodeGet(`${base}/InventoryToRecentSales/${STOCK_CODE}`),
+    invDetail: await nodeGet(`${base}/InventoriesDatailOriginal/${STOCK_CODE}`),
+    contract:  await nodeGet(`${base}/CurrentContractLiabilitiesVSRevenue/${STOCK_CODE}`),
+    turnover:  await nodeGet(`${base}/InventoriesTurnoverTimes_Revenue_GrossMargin/${STOCK_CODE}`),
+  };
 
   // ── 解析 ──
   const parse = (raw) => { try { return JSON.parse(raw); } catch(e) { return {}; } };

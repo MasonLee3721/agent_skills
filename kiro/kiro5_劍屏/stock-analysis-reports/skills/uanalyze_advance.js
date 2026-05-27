@@ -92,90 +92,33 @@ async function run() {
   if (page.url().includes('login')) throw new Error('登入失敗');
   console.log('✅ 登入成功');
 
-  // ── 進入 EnterpriseInsight 並搜尋股票（讓 cookie/token 正確設定）──
-  console.log(`🔍 搜尋 ${STOCK_CODE}...`);
-  await page.goto('https://pro.uanalyze.com.tw/lab/dashboard/lynch-tengrower/EnterpriseInsight', {
-    waitUntil: 'domcontentloaded', timeout: 30000
-  });
-  await sleep(3000);
-  await page.evaluate(() => {
-    document.querySelectorAll('.modal-backdrop,.modal,.new-version').forEach(el => el.remove());
-    document.body.classList.remove('modal-open');
-    Array.from(document.querySelectorAll('button')).forEach(b => { if(b.textContent.includes('我知道了')) b.click(); });
-  });
-
-  // 判斷是否為台股（純數字代號）
-  const isTW = /^\d+$/.test(STOCK_CODE);
-
-  if (isTW) {
-    // 台股：搜尋框選股，觸發 guides + EPS API
-    const input = await page.$('input.react-autosuggest__input');
-    await input.click({ force: true });
-    await input.fill(STOCK_CODE);
-    await sleep(1500);
-    const suggestions = await page.$$('.react-autosuggest__suggestion');
-    if (suggestions.length > 0) {
-      await suggestions[0].click();
-      await sleep(6000);
-    } else {
-      await page.keyboard.press('Enter');
-      await sleep(6000);
-    }
-  } else {
-    // 美股：直接跳過搜尋框，token 已取得即可
-    console.log('  ℹ️ 美股模式，跳過搜尋框');
-    await sleep(1000);
-  }
-
-  // ── 取得 access_token ──
+  // ── 取得 access_token（登入後即可取得，不需導航到 dashboard）──
   const cookies = await context.cookies();
   const accessToken = cookies.find(c => c.name === 'access_token')?.value;
   const tokenType = cookies.find(c => c.name === 'token_type')?.value || 'Bearer';
   if (!accessToken) throw new Error('找不到 access_token，請確認登入成功');
   console.log('✅ 取得 access_token');
 
-  // ── 用 CDP 攔截 guides + EPS ──
-  const client = await context.newCDPSession(page);
-  await client.send('Network.enable');
-  const pending = {};
+  await browser.close();
+
+  // ── 用 Node.js fetch 直接呼叫 API（避免 browser 在重型 SPA 頁面 crash）──
+  const nodeGet = async (url) => {
+    const resp = await fetch(url, {
+      headers: { 'Authorization': `${tokenType} ${accessToken}` }
+    });
+    return await resp.text();
+  };
+
+  // guides + EPS（直接 API，不需 CDP 攔截）
   const captured = { guides: null, eps: null };
-
-  client.on('Network.responseReceived', e => {
-    const url = e.response.url;
-    if (url.includes('twobitto') || url.includes('cronjob')) {
-      pending[e.requestId] = url;
-    }
-  });
-  client.on('Network.loadingFinished', async e => {
-    if (!pending[e.requestId]) return;
-    try {
-      const b = await client.send('Network.getResponseBody', { requestId: e.requestId });
-      const text = b.base64Encoded ? Buffer.from(b.body, 'base64').toString() : b.body;
-      const url = pending[e.requestId];
-      if (url.includes('/api/guides/')) {
-        captured.guides = text;
-        console.log(`  ✅ guides (${text.length}b)`);
-      } else if (url.includes('EPSRevenueConsensusEstimate')) {
-        captured.eps = text;
-        console.log(`  ✅ EPS data (${text.length}b)`);
-      }
-    } catch(e) {}
-  });
-
-  // 重新搜尋一次確保 guides/EPS 被攔截（僅台股）
-  if (isTW) {
-    const input2 = await page.$('input.react-autosuggest__input');
-    await input2.click({ force: true });
-    await input2.fill('');
-    await sleep(300);
-    await input2.fill(STOCK_CODE);
-    await sleep(1500);
-    const suggestions2 = await page.$$('.react-autosuggest__suggestion');
-    if (suggestions2.length > 0) {
-      await suggestions2[0].click();
-      await sleep(6000);
-    }
-  }
+  try {
+    captured.guides = await nodeGet(`https://data.uanalyze.twobitto.com/api/guides/${STOCK_CODE}`);
+    console.log(`  ✅ guides (${captured.guides.length}b)`);
+  } catch(e) { console.log('  ❌ guides:', e.message); }
+  try {
+    captured.eps = await nodeGet(`https://cronjob.uanalyze.com.tw/data_fetch/api/EPSRevenueConsensusEstimate/${STOCK_CODE}`);
+    console.log(`  ✅ EPS data (${captured.eps.length}b)`);
+  } catch(e) { console.log('  ❌ EPS:', e.message); }
 
   // ── 直接 POST completions API 取得每個主題 ──
   console.log('📋 查詢小助理主題...');
@@ -184,38 +127,29 @@ async function run() {
   for (const topic of TOPICS) {
     process.stdout.write(`  查詢「${topic}」...`);
     try {
-      const result = await page.evaluate(async ([host, topic, stock, token, tokenType]) => {
-        const url = `${host}/completions?prompt=${encodeURIComponent(topic)}&stock=${stock}`;
-        const body = `prompt=${encodeURIComponent(topic)}&stock=${stock}`;
-        const resp = await fetch(url, {
-          method: 'POST',
-          credentials: 'include',
-          headers: {
-            'Content-Type': 'application/x-www-form-urlencoded',
-            'Authorization': `${tokenType} ${token}`,
-            'Accept': 'application/json',
-            'Referer': 'https://pro.uanalyze.com.tw/',
-          },
-          body
-        });
-        const text = await resp.text();
-        return { status: resp.status, text };
-      }, [AI_HOST, topic, STOCK_CODE, accessToken, tokenType]);
-
-      if (result.status === 200) {
-        const content = parseContent(result.text);
-        completions[topic] = content;
-        console.log(` ✅ (${result.text.length}b)`);
+      const body = `prompt=${encodeURIComponent(topic)}&stock=${STOCK_CODE}`;
+      const resp = await fetch(`${AI_HOST}/completions?prompt=${encodeURIComponent(topic)}&stock=${STOCK_CODE}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+          'Authorization': `${tokenType} ${accessToken}`,
+          'Accept': 'application/json',
+          'Referer': 'https://pro.uanalyze.com.tw/',
+        },
+        body
+      });
+      const text = await resp.text();
+      if (resp.status === 200) {
+        completions[topic] = parseContent(text);
+        console.log(` ✅ (${text.length}b)`);
       } else {
-        console.log(` ❌ status ${result.status}`);
+        console.log(` ❌ status ${resp.status}`);
       }
     } catch(e) {
       console.log(` ❌ ${e.message}`);
     }
-    await sleep(rand(1000, 2000)); // 避免太快被 rate limit
+    await sleep(rand(1000, 2000));
   }
-
-  await browser.close();
   console.log(`\n📊 已取得 ${Object.keys(completions).length}/${TOPICS.length} 個主題`);
 
   // ── 建立 Markdown 報告 ──
