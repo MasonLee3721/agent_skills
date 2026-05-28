@@ -46,68 +46,29 @@ function parseContent(rawStr) {
 }
 
 async function run() {
-  // 自動安裝 Playwright libs（持久化路徑，pod 重啟不消失）
-  try {
-    execSync('bash /home/agent/scripts/setup_playwright_libs.sh', { stdio: 'inherit' });
-  } catch(e) {
-    console.error('⚠️  setup_playwright_libs.sh 執行失敗:', e.message);
-  }
-  
-  process.env.LD_LIBRARY_PATH = `/home/agent/playwright-libs/usr/lib/x86_64-linux-gnu:/home/agent/playwright-libs/lib/x86_64-linux-gnu:/home/agent/playwright-libs/usr/lib:${process.env.LD_LIBRARY_PATH || ''}`;
-
-  const browser = await chromium.launch({
-    headless: true,
-    executablePath: CHROME,
-    args: ['--no-sandbox','--disable-setuid-sandbox','--disable-dev-shm-usage','--disable-gpu','--headless=new','--disable-blink-features=AutomationControlled'],
-  });
-  const context = await browser.newContext({
-    userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-    locale: 'zh-TW',
-    timezoneId: 'Asia/Taipei',
-  });
-  await context.addInitScript(() => {
-    Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
-    Object.defineProperty(navigator, 'plugins', { get: () => [1,2,3,4,5] });
-    window.chrome = { runtime: {} };
-  });
-  const page = await context.newPage();
-  await page.setViewportSize({ width: 1280, height: 900 });
-
-  // ── 登入 ──
+  // ── 直接用 curl 取得 access_token（api.uanalyze.com.tw 需透過 Cloudflare IP）──
   console.log('🔐 登入中...');
-  await page.goto('https://pro.uanalyze.com.tw/login-page', { waitUntil: 'domcontentloaded', timeout: 30000 });
-  await sleep(3000);
-  await page.evaluate(() => {
-    document.querySelectorAll('.modal-backdrop,.modal,.new-version').forEach(el => el.remove());
-    document.body.classList.remove('modal-open');
-  });
-  await sleep(300);
-  await page.fill('input[type="email"]', process.env.UANALYZE_USERNAME);
-  await sleep(rand(60, 150));
-  await page.fill('input[type="password"]', process.env.UANALYZE_PASSWORD);
-  await sleep(rand(60, 150));
-  const loginBtn = await page.$('button[type="submit"]');
-  if (loginBtn) await loginBtn.click({ force: true });
-  await sleep(5000);
-  if (page.url().includes('login')) throw new Error('登入失敗');
+  const loginResult = JSON.parse(execSync(
+    `curl -s --max-time 15 --resolve 'api.uanalyze.com.tw:443:172.67.143.166' ` +
+    `-X POST https://api.uanalyze.com.tw/auth/token ` +
+    `-H 'Content-Type: application/json' ` +
+    `-H 'Origin: https://pro.uanalyze.com.tw' ` +
+    `-d '{"email":"${process.env.UANALYZE_USERNAME}","password":"${process.env.UANALYZE_PASSWORD}"}'`
+  ).toString());
+  if (loginResult.status !== 'success') throw new Error('登入失敗: ' + JSON.stringify(loginResult));
+  const accessToken = loginResult.data.access_token;
+  const tokenType = loginResult.data.token_type || 'Bearer';
   console.log('✅ 登入成功');
-
-  // ── 取得 access_token（登入後即可取得，不需導航到 dashboard）──
-  const cookies = await context.cookies();
-  const accessToken = cookies.find(c => c.name === 'access_token')?.value;
-  const tokenType = cookies.find(c => c.name === 'token_type')?.value || 'Bearer';
-  if (!accessToken) throw new Error('找不到 access_token，請確認登入成功');
   console.log('✅ 取得 access_token');
 
-  await browser.close();
-
-  // ── 用 Node.js fetch 直接呼叫 API（避免 browser 在重型 SPA 頁面 crash）──
+  // ── 用 Node.js fetch / curl 呼叫 API ──
   const nodeGet = async (url) => {
-    const resp = await fetch(url, {
-      headers: { 'Authorization': `${tokenType} ${accessToken}` }
-    });
+    const resp = await fetch(url, { headers: { 'Authorization': `${tokenType} ${accessToken}` } });
     return await resp.text();
   };
+  const curlGet = (url) => execSync(
+    `curl -s --max-time 15 --resolve 'cronjob.uanalyze.com.tw:443:172.67.143.166' '${url}' -H 'Authorization: ${tokenType} ${accessToken}' -H 'Origin: https://pro.uanalyze.com.tw'`
+  ).toString();
 
   // guides + EPS（直接 API，不需 CDP 攔截）
   const captured = { guides: null, eps: null };
@@ -116,7 +77,7 @@ async function run() {
     console.log(`  ✅ guides (${captured.guides.length}b)`);
   } catch(e) { console.log('  ❌ guides:', e.message); }
   try {
-    captured.eps = await nodeGet(`https://cronjob.uanalyze.com.tw/data_fetch/api/EPSRevenueConsensusEstimate/${STOCK_CODE}`);
+    captured.eps = curlGet(`https://cronjob.uanalyze.com.tw/data_fetch/api/EPSRevenueConsensusEstimate/${STOCK_CODE}`);
     console.log(`  ✅ EPS data (${captured.eps.length}b)`);
   } catch(e) { console.log('  ❌ EPS:', e.message); }
 
