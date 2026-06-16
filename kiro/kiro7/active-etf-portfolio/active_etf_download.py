@@ -91,54 +91,62 @@ def compare_with_yesterday(today_file: Path):
             None
         )
         if header_idx is None:
-            return {}
-        data = {}
+            return {}, {}
+        shares_map, name_map = {}, {}
         for row in rows[header_idx + 1:]:
             if not row or not row[0]:
                 continue
             code = str(row[0]).strip()
             if not code or code == "None":
                 continue
+            name_map[code] = str(row[1]).strip() if row[1] else ""
             try:
-                shares = int(str(row[2]).replace(",", "").split(".")[0])
+                shares_map[code] = int(str(row[2]).replace(",", "").split(".")[0])
             except Exception:
-                shares = 0
-            data[code] = shares
-        return data
+                shares_map[code] = 0
+        return shares_map, name_map
 
-    prev = load(yesterday_file)
-    curr = load(today_file)
-    all_codes = set(prev) | set(curr)
+    prev_shares, _ = load(yesterday_file)
+    curr_shares, curr_names = load(today_file)
+    # 合併名稱（出清的股票名稱從前日取）
+    _, prev_names = load(yesterday_file)
+    all_names = {**prev_names, **curr_names}
+
+    all_codes = set(prev_shares) | set(curr_shares)
 
     new_in, out, buy, sell = [], [], [], []
     for code in all_codes:
-        p, c = prev.get(code, 0), curr.get(code, 0)
-        if code not in prev:
+        p, c = prev_shares.get(code, 0), curr_shares.get(code, 0)
+        if code not in prev_shares:
             new_in.append((code, c))
-        elif code not in curr:
+        elif code not in curr_shares:
             out.append((code, p))
         elif c > p:
             buy.append((code, c - p))
         elif c < p:
             sell.append((code, p - c))
 
+    def label(code):
+        name = all_names.get(code, "")
+        return f"{code} {name}" if name else code
+
     print("\n========== 今日異動 ==========")
     if new_in:
         print("[+] 新買進：")
         for code, s in new_in:
-            print(f"   {code}  +{s:,} 股")
+            print(f"   {label(code)}  +{s:,} 股")
     if buy:
         print("[^] 加碼：")
         for code, s in sorted(buy, key=lambda x: -x[1]):
-            print(f"   {code}  +{s:,} 股")
+            print(f"   {label(code)}  +{s:,} 股")
     if sell:
         print("[v] 減碼：")
         for code, s in sorted(sell, key=lambda x: -x[1]):
-            print(f"   {code}  -{s:,} 股")
+            print(f"   {label(code)}  -{s:,} 股")
     if out:
         print("[-] 出清：")
         for code, s in out:
-            print(f"   {code}  -{s:,} 股")
+            print(f"   {label(code)}  -{s:,} 股")
     if not any([new_in, buy, sell, out]):
         print("  無異動")
     print("==============================")
