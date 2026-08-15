@@ -3,6 +3,7 @@ use strict;
 use warnings;
 use utf8;
 use JSON::PP;
+use File::Basename;
 
 binmode(STDOUT, ":utf8");
 binmode(STDERR, ":utf8");
@@ -55,7 +56,8 @@ sub parse_xlsx {
     
     my %data = (
         meta => {},
-        holdings => []
+        holdings => {},
+        names => {}
     );
     
     my $in_stock_section = 0;
@@ -90,12 +92,13 @@ sub parse_xlsx {
                 my $name = $cells[1]; $name =~ s/\s+//g;
                 my $shares = $cells[2]; $shares =~ s/,//g;
                 my $weight = $cells[3];
-                push @{$data{holdings}}, {
+                $data{holdings}{$code} = {
                     code => $code,
                     name => $name,
                     shares => $shares + 0,
                     weight => $weight
                 };
+                $data{names}{$code} = $name;
             }
         }
     }
@@ -103,20 +106,70 @@ sub parse_xlsx {
     return \%data;
 }
 
-my $parsed = parse_xlsx($dest);
+# Find all Excel files sorted
+my @excel_files = sort glob("$data_dir/active_etf_49YTW_*.xlsx");
+my $curr_file = $excel_files[-1];
+my $curr_data = parse_xlsx($curr_file);
+
 print "=== 00981A 統一台灣成長主動式ETF 每日持股狀況 ===\n";
-print "資料日期: ", ($parsed->{meta}{date} || "未知"), "\n";
-print "淨資產: ", ($parsed->{meta}{nav} || "未知"), "\n";
-print "每單位淨值: ", ($parsed->{meta}{nav_per_unit} || "未知"), "\n\n";
+print "資料日期: ", ($curr_data->{meta}{date} || "未知"), "\n";
+print "淨資產: ", ($curr_data->{meta}{nav} || "未知"), "\n";
+print "每單位淨值: ", ($curr_data->{meta}{nav_per_unit} || "未知"), "\n\n";
 
-print "=== 前 15 大持股明細 ===\n";
-printf "%-4s | %-6s | %-12s | %-12s | %-8s\n", "序號", "股號", "股票名稱", "持股張數", "持股權重";
-print "-" x 55 . "\n";
-
-my $idx = 1;
-for my $h (@{$parsed->{holdings}}) {
-    last if $idx > 15;
-    my $zhang = commify(int($h->{shares} / 1000));
-    printf "%-4d | %-6s | %-12s | %-12s | %-8s\n", $idx, $h->{code}, $h->{name}, $zhang, $h->{weight};
-    $idx++;
+# Compare with previous if available
+if (@excel_files >= 2) {
+    # Check if there is a file with different content
+    my $prev_file = undef;
+    for (my $i = scalar(@excel_files) - 2; $i >= 0; $i--) {
+        $prev_file = $excel_files[$i];
+        last;
+    }
+    
+    if ($prev_file) {
+        my $prev_data = parse_xlsx($prev_file);
+        print "=== 📊 持股異動比對 [", basename($prev_file), " → ", basename($curr_file), "] ===\n";
+        
+        my %all_codes = map { $_ => 1 } (keys %{$prev_data->{holdings}}, keys %{$curr_data->{holdings}});
+        my (@new_in, @out, @buy, @sell);
+        
+        for my $code (keys %all_codes) {
+            my $p = $prev_data->{holdings}{$code}{shares} || 0;
+            my $c = $curr_data->{holdings}{$code}{shares} || 0;
+            my $name = $curr_data->{names}{$code} || $prev_data->{names}{$code} || $code;
+            
+            if ($p == 0 && $c > 0) {
+                push @new_in, { code => $code, name => $name, diff => $c };
+            } elsif ($p > 0 && $c == 0) {
+                push @out, { code => $code, name => $name, diff => $p };
+            } elsif ($c > $p) {
+                push @buy, { code => $code, name => $name, diff => $c - $p };
+            } elsif ($c < $p) {
+                push @sell, { code => $code, name => $name, diff => $p - $c };
+            }
+        }
+        
+        if (!@new_in && !@out && !@buy && !@sell) {
+            print "ℹ️ [現階段說明] 本次與上一同日備份檔案內容相同 (非交易日/尚未發布新持股)，暫無持股數量增減。\n";
+        } else {
+            if (@new_in) {
+                print "[+] 新買進：\n";
+                for my $r (@new_in) { print "   $r->{code} $r->{name}  +" . commify($r->{diff}) . " 股\n"; }
+            }
+            if (@buy) {
+                print "[^] 加碼：\n";
+                for my $r (sort { $b->{diff} <=> $a->{diff} } @buy) { print "   $r->{code} $r->{name}  +" . commify($r->{diff}) . " 股\n"; }
+            }
+            if (@sell) {
+                print "[v] 減碼：\n";
+                for my $r (sort { $b->{diff} <=> $a->{diff} } @sell) { print "   $r->{code} $r->{name}  -" . commify($r->{diff}) . " 股\n"; }
+            }
+            if (@out) {
+                print "[-] 出清：\n";
+                for my $r (@out) { print "   $r->{code} $r->{name}  -" . commify($r->{diff}) . " 股\n"; }
+            }
+        }
+        print "==================================================\n\n";
+    }
+} else {
+    print "ℹ️ [提示] 目前為首次建立持股歷史庫（僅有 1 份歷史檔），將在下一個交易日官方發布新 Excel 時自動比對異動！\n\n";
 }
