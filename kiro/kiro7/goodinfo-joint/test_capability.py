@@ -104,5 +104,17 @@ def invalid_python_syntax(
                     self.assertTrue(mock_check_cap.called, "main() 應正常調用 check_scraper_capability")
                     self.assertGreaterEqual(mock_sub.call_count, 2, "應至少調用 2 次 subprocess.run 執行 pipeline 步驟")
 
+    @patch("subprocess.run")
+    def test_main_step_failure_exits_nonzero(self, mock_sub):
+        """驗證當步驟 returncode != 0 時，main() 精確引發 SystemExit(1) 中止"""
+        import tempfile, os
+        mock_sub.return_value.returncode = 1
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with patch.dict(os.environ, {"TEMP": tmpdir}):
+                with patch.object(self.goodinfo_joint_run, "check_scraper_capability"):
+                    with self.assertRaises(SystemExit) as cm:
+                        self.goodinfo_joint_run.main()
+                    self.assertEqual(cm.exception.code, 1)
+
 if __name__ == "__main__":
     unittest.main()
