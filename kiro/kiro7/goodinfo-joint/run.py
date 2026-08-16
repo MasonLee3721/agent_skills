@@ -23,6 +23,19 @@ def resolve_scraper_dir():
 
 SCRAPER = resolve_scraper_dir()
 
+def check_scraper_capability():
+    recommend_py = SCRAPER / "recommend.py"
+    if not recommend_py.exists():
+        print(f"❌ 找不到 goodinfo-scraper 程式檔：{recommend_py}")
+        sys.exit(1)
+    content = recommend_py.read_text(encoding="utf-8", errors="ignore")
+    if "CHART_SCRIPT" not in content:
+        print(f"❌ goodinfo-scraper ({SCRAPER}) 不支援 CHART_SCRIPT 載入能力，請更新 goodinfo-scraper 至 Commit @9a6ffb9 或更新版本！")
+        sys.exit(1)
+    print("✅ goodinfo-scraper CHART_SCRIPT 執行期能力檢查通過")
+
+check_scraper_capability()
+
 def get_secret(key):
     val = os.environ.get(key)
     if val:
