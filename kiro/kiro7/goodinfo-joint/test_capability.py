@@ -68,5 +68,16 @@ def invalid_python_syntax(
         ok, msg = inspect_ast_for_chart_script(code)
         self.assertFalse(ok, "語法錯誤案例應判定失敗")
 
+    def test_import_no_side_effects(self):
+        """驗證 import run 模組時完全無 subprocess.run 副作用 (0 次呼叫)"""
+        import importlib
+        from unittest.mock import patch
+        with patch("subprocess.run") as mock_sub:
+            if "run" in sys.modules:
+                importlib.reload(sys.modules["run"])
+            else:
+                import run
+            mock_sub.assert_not_called()
+
 if __name__ == "__main__":
     unittest.main()
