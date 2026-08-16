@@ -89,15 +89,20 @@ def invalid_python_syntax(
 
     @patch("subprocess.run")
     def test_main_smoke_test(self, mock_sub):
-        """Smoke Test: 驗證 main() 控制流與 Helper 呼叫在安全 Mock 下可正常運作"""
+        """Smoke Test: 驗證 main() 控制流、步驟調用次數與 Temp 檔案隔離"""
+        import tempfile, os
         mock_sub.return_value.returncode = 0
         mock_sub.return_value.stdout = "OK"
-        with patch.object(self.goodinfo_joint_run, "check_scraper_capability") as mock_check_cap:
-            try:
-                self.goodinfo_joint_run.main()
-            except SystemExit as e:
-                self.assertEqual(e.code, 0)
-            self.assertTrue(mock_check_cap.called, "main() 應正常調用 check_scraper_capability")
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with patch.dict(os.environ, {"TEMP": tmpdir}):
+                with patch.object(self.goodinfo_joint_run, "check_scraper_capability") as mock_check_cap:
+                    try:
+                        self.goodinfo_joint_run.main()
+                    except SystemExit as e:
+                        self.assertEqual(e.code, 0)
+                    self.assertTrue(mock_check_cap.called, "main() 應正常調用 check_scraper_capability")
+                    self.assertGreaterEqual(mock_sub.call_count, 2, "應至少調用 2 次 subprocess.run 執行 pipeline 步驟")
 
 if __name__ == "__main__":
     unittest.main()
