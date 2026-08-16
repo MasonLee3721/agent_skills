@@ -1,44 +1,69 @@
 """
-run.py - 取代 run.bat，用 Python 執行投信買超分析完整流程
+run.py - 跨平台台股投信買超分析 pipeline 主流程
 """
-import sys, os, subprocess, shutil
+import sys, os, subprocess, site
+from pathlib import Path
 
 PYTHON = sys.executable
-SCRAPER = r"C:\openab\goodinfo-scraper"
-SKILL_DIR = os.path.dirname(os.path.abspath(__file__))
-SECRETS = [PYTHON, r"C:\openab\passkey\secrets_manager.py", "get"]
+SKILL_DIR = Path(__file__).resolve().parent
+
+def resolve_scraper_dir():
+    if "SCRAPER_DIR" in os.environ and os.path.isdir(os.environ["SCRAPER_DIR"]):
+        return Path(os.environ["SCRAPER_DIR"]).resolve()
+    for parent in [SKILL_DIR, *SKILL_DIR.parents]:
+        cand = parent / "goodinfo-scraper"
+        if cand.is_dir():
+            return cand
+        cand_sub = parent.parent / "goodinfo-scraper"
+        if cand_sub.is_dir():
+            return cand_sub
+    default_dir = Path(r"C:\openab\goodinfo-scraper") if os.name == "nt" else Path("/home/agent/goodinfo-scraper")
+    return default_dir
+
+SCRAPER = resolve_scraper_dir()
 
 def get_secret(key):
-    try:
-        r = subprocess.run(SECRETS + [key], capture_output=True, text=True)
-        return r.stdout.strip()
-    except:
-        return ""
+    val = os.environ.get(key)
+    if val:
+        return val
+    # Fallback call to secrets_manager.py if available
+    for base in [SKILL_DIR.parent.parent.parent.parent, Path(r"C:\openab") if os.name == "nt" else Path("/home/agent")]:
+        sm = base / "passkey" / "secrets_manager.py"
+        if sm.exists():
+            try:
+                r = subprocess.run([PYTHON, str(sm), "get", key], capture_output=True, text=True)
+                if r.returncode == 0 and r.stdout.strip():
+                    return r.stdout.strip()
+            except Exception:
+                pass
+    return ""
 
 def run(step, script, cwd=SCRAPER, env=None):
     print(f"[{step}] {script}...")
-    r = subprocess.run([PYTHON, script], cwd=cwd, env=env,
-                       capture_output=False)
+    r = subprocess.run([PYTHON, script], cwd=str(cwd), env=env, capture_output=False)
     if r.returncode != 0:
         print(f"FAILED at step {step}")
         sys.exit(1)
 
-# 注入環境變數
+# 動態補充 Python site-packages
+user_site = site.getusersitepackages()
+if user_site and os.path.isdir(user_site) and user_site not in sys.path:
+    sys.path.insert(0, user_site)
+
 env = os.environ.copy()
 env["PYTHONIOENCODING"] = "utf-8"
-env["PYTHONPATH"] = (
-    r"C:\Users\swalz\AppData\Roaming\Python\Python314\site-packages;"
-    r"C:\Users\swalz\Python\Python314\site-packages"
-)
+env["SCRAPER_DIR"] = str(SCRAPER)
+
 token = get_secret("DISCORD_BOT_TOKEN")
 thread_id = get_secret("DISCORD_THREAD_ID")
-if token:  env["DISCORD_BOT_TOKEN"] = token
-if thread_id: env["DISCORD_CHANNEL_ID"] = thread_id
+if token:
+    env["DISCORD_BOT_TOKEN"] = token
+if thread_id:
+    env["DISCORD_CHANNEL_ID"] = thread_id
 
 # Step 0: patch
-print("[0/6] patch scripts for Windows...")
-subprocess.run([PYTHON, os.path.join(SKILL_DIR, "patch_for_windows.py")],
-               capture_output=False)
+print("[0/6] patch scripts for current platform...")
+subprocess.run([PYTHON, str(SKILL_DIR / "patch_for_windows.py")], capture_output=False)
 
 # Step 1-5
 for step, script in [
@@ -48,33 +73,29 @@ for step, script in [
     ("4/6", "trust_trend.py"),
     ("5/6", "screen.py"),
 ]:
-    run(step, script, env=env)
+    run(step, script, cwd=SCRAPER, env=env)
 
-# Step 6: recommend（替換 chart_draw.py）
+# Step 6: recommend（零檔案覆蓋，經由環境變數傳遞自訂 K線圖繪製腳本）
 print("[6/6] recommend + chart...")
-chart = os.path.join(SCRAPER, "chart_draw.py")
-chart_bak = os.path.join(SCRAPER, "chart_draw_bak.py")
-chart_win = os.path.join(SKILL_DIR, "chart_draw_win.py")
-shutil.copy2(chart, chart_bak)
-shutil.copy2(chart_win, chart)
+chart_win = str(SKILL_DIR / "chart_draw_win.py")
+env["CHART_SCRIPT"] = chart_win
 
-recommend_out = os.path.join(os.environ.get("TEMP", SCRAPER), "recommend_out.txt")
+temp_dir = os.environ.get("TEMP", str(SCRAPER))
+recommend_out = os.path.join(temp_dir, "recommend_out.txt")
 with open(recommend_out, "w", encoding="utf-8") as f:
-    subprocess.run([PYTHON, "recommend.py"], cwd=SCRAPER, env=env,
-                   stdout=f, stderr=f)
-
-shutil.copy2(chart_bak, chart)
-os.remove(chart_bak)
+    subprocess.run([PYTHON, "recommend.py"], cwd=str(SCRAPER), env=env, stdout=f, stderr=f)
 
 # 印出推薦結果
-import sys, io
+import io
 if hasattr(sys.stdout, 'buffer'):
     sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
-print(open(recommend_out, encoding="utf-8", errors="ignore").read())
+if os.path.exists(recommend_out):
+    print(open(recommend_out, encoding="utf-8", errors="ignore").read())
 
 # 傳送 Discord
-subprocess.run([PYTHON, os.path.join(SKILL_DIR, "send_recommend.py"),
+subprocess.run([PYTHON, str(SKILL_DIR / "send_recommend.py"),
                 recommend_out, env.get("DISCORD_CHANNEL_ID", "")],
                env=env, capture_output=False)
 
-print(f"Done. Charts: {SCRAPER}\\charts\\")
+print(f"Done. Charts: {SCRAPER / 'charts'}")
+

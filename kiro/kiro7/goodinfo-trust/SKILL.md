@@ -10,17 +10,24 @@ description: >
 
 ## 執行方式
 
+跨平台（Windows / Linux）推薦統一使用 Python 執行：
+
+```bash
+python kiro/kiro7/goodinfo-trust/run.py
+```
+
+Windows 批次檔執行方式：
+
 ```cmd
-cmd /c "C:\openab\agent_skills\kiro\kiro7\goodinfo-trust\run.bat" > C:\openab\goodinfo_run.log 2>&1
-type C:\openab\goodinfo_run.log
+cmd /c "%CD%\kiro\kiro7\goodinfo-trust\run.bat"
 ```
 
 ## 前置條件
 
-1. `C:\openab\goodinfo-scraper\` 已存在
-   - 若不存在：`git clone https://github.com/MasonLee3721/goodinfo-scraper.git C:\openab\goodinfo-scraper`
-2. `DISCORD_BOT_TOKEN` 已設定於 `C:\openab\passkey\secrets_manager.py`
-3. 首次執行先跑 `setup.bat`
+1. `goodinfo-scraper` 儲存庫已下載（同級目錄或指定 `SCRAPER_DIR`）
+   - 若不存在：`git clone https://github.com/MasonLee3721/goodinfo-scraper.git`
+2. `DISCORD_BOT_TOKEN` 已設定於系統環境變數或 `passkey/secrets_manager.py`
+3. 首次執行先執行套件安裝（`pip install -r requirements.txt` 或 `setup.bat`）
 
 ## Pipeline 步驟
 
@@ -61,3 +68,12 @@ type C:\openab\goodinfo_run.log
 - 技術面分析每支約 1~2 秒（Yahoo Finance API）
 - 詳細流程說明：`references/pipeline.md`
 - 常見錯誤排查：`references/troubleshooting.md`
+
+## 金融數據治理與資料誠信原則 (MasonLee 大老闆核心指令)
+
+1. **Raw Data ≠ Derived Data ≠ Estimated Data**：三者必須完全分離。絕不捏造、模擬或拿價格估算任何真實財務與籌碼指標 (如法人買賣超、營收、成交量、價格)。
+2. **零偽造籌碼法則 (Zero Synthetic Data Rule)**：嚴禁使用 Trend Curve Fitting 擬真演算法、隨機生成器或推測邏輯冒充官方真實法人買賣超。
+3. **官方數據庫與增量更新架構 (Incremental Sync Engine)**：
+   - 採用「TWSE / TPEx 官方歷史資料回補 + 本地 JSON/SQLite 資料庫 (`t86_real_database.json`) + 每日增量更新 (`institutional_data_engine.pl`)」架構。
+   - 繪圖與指標計算 100% 只從本地官方真實資料庫調用外資與投信原始張數。
+   - 若歷史資料尚未回補完成，明確標示 `[目前歷史資料尚未回補完成]` 或 `N/A`，絕不偽造數據冒充官方實際值。

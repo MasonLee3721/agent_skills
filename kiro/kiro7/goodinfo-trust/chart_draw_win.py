@@ -24,14 +24,23 @@ from pathlib import Path
 
 warnings.filterwarnings('ignore')
 
-# Windows 微軟正黑體
-plt.rcParams['font.family'] = ['Microsoft JhengHei', 'DejaVu Sans']
+# 微軟正黑體與跨平台字型降級
+plt.rcParams['font.family'] = ['Microsoft JhengHei', 'DejaVu Sans', 'sans-serif']
 plt.rcParams['axes.unicode_minus'] = False
 
 STOCK_ID = sys.argv[1] if len(sys.argv) > 1 else '2330'
-# 當此檔被 copy 到 goodinfo-scraper/ 後，__file__ 的 parent 就是 goodinfo-scraper/
-OUT_DIR = Path(__file__).parent / 'charts'
-OUT_DIR.mkdir(exist_ok=True)
+
+# 動態解析圖表輸出目錄
+def _get_out_dir():
+    if "SCRAPER_DIR" in _os.environ and _os.path.isdir(_os.environ["SCRAPER_DIR"]):
+        return Path(_os.environ["SCRAPER_DIR"]) / 'charts'
+    p = Path(__file__).resolve().parent
+    if (p / 'charts').exists() or p.name == 'goodinfo-scraper':
+        return p / 'charts'
+    return Path(__file__).resolve().parent / 'charts'
+
+OUT_DIR = _get_out_dir()
+OUT_DIR.mkdir(exist_ok=True, parents=True)
 
 
 def _is_otc(stock_id: str) -> bool:

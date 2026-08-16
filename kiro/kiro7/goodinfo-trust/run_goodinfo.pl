@@ -4,16 +4,36 @@ use warnings;
 use utf8;
 use JSON::PP;
 
+use POSIX qw(strftime);
+
 binmode(STDOUT, ":utf8");
 binmode(STDERR, ":utf8");
 
+# 動態計算目標交易日
+sub get_target_date {
+    if (@ARGV && $ARGV[0] =~ /^\d{8}$/) {
+        return $ARGV[0];
+    }
+    my ($sec,$min,$hour,$mday,$mon,$year,$wday,$yday,$isdst) = localtime(time);
+    if ($wday == 6) { # 週六 -> 往前移至週五
+        ($sec,$min,$hour,$mday,$mon,$year,$wday,$yday,$isdst) = localtime(time - 86400);
+    } elsif ($wday == 0) { # 週日 -> 往前移至週五
+        ($sec,$min,$hour,$mday,$mon,$year,$wday,$yday,$isdst) = localtime(time - 172800);
+    }
+    return strftime("%Y%m%d", $sec,$min,$hour,$mday,$mon,$year,$wday,$yday,$isdst);
+}
+
+my $target_date = get_target_date();
+my $display_date = sprintf("%s/%s/%s", substr($target_date,0,4), substr($target_date,4,2), substr($target_date,6,2));
+
 # 1. Fetch TWSE Capital
 my $json_cap = `curl -s "https://openapi.twse.com.tw/v1/opendata/t187ap03_L"`;
-my $cap_list = decode_json($json_cap);
+my $cap_list = eval { decode_json($json_cap) } || [];
 my %capital;
 for my $c (@$cap_list) {
     my $code = $c->{"公司代號"};
     my $cap = $c->{"實收資本額"};
+    next unless defined $code && defined $cap;
     $cap =~ s/,//g;
     $capital{$code} = {
         name => $c->{"公司簡稱"},
@@ -23,37 +43,40 @@ for my $c (@$cap_list) {
 }
 
 # 2. Fetch TWSE T86
-my $json_t86 = `curl -s "https://www.twse.com.tw/rwd/zh/fund/T86?response=json&date=20260814&selectType=ALLBUT0999"`;
-my $t86_data = decode_json($json_t86);
+my $json_t86 = `curl -s "https://www.twse.com.tw/rwd/zh/fund/T86?response=json&date=$target_date&selectType=ALLBUT0999"`;
+my $t86_data = eval { decode_json($json_t86) } || {};
 
 my @top_stocks;
-for my $row (@{$t86_data->{data}}) {
-    my $code = $row->[0]; $code =~ s/\s+//g;
-    next unless exists $capital{$code};
-    
-    my $name = $row->[1]; $name =~ s/\s+//g;
-    my $sitc_buy = $row->[10]; $sitc_buy =~ s/,//g; # 投信買賣超股數
-    my $shares = $capital{$code}->{shares};
-    next if $shares <= 0 || $sitc_buy <= 0;
-    
-    my $sitc_ratio = ($sitc_buy / $shares) * 100;
-    
-    push @top_stocks, {
-        code => $code,
-        name => $name,
-        shares_zhang => int($shares / 1000),
-        sitc_buy_zhang => int($sitc_buy / 1000),
-        sitc_ratio => $sitc_ratio,
-    };
+if ($t86_data && ref($t86_data) eq 'HASH' && $t86_data->{data} && ref($t86_data->{data}) eq 'ARRAY') {
+    for my $row (@{$t86_data->{data}}) {
+        my $code = $row->[0]; $code =~ s/\s+//g if defined $code;
+        next unless defined $code && exists $capital{$code};
+        
+        my $name = $row->[1]; $name =~ s/\s+//g if defined $name;
+        my $sitc_buy = $row->[10]; $sitc_buy =~ s/,//g if defined $sitc_buy; # 投信買賣超股數
+        my $shares = $capital{$code}->{shares};
+        next if !defined $sitc_buy || $shares <= 0 || $sitc_buy <= 0;
+        
+        my $sitc_ratio = ($sitc_buy / $shares) * 100;
+        
+        push @top_stocks, {
+            code => $code,
+            name => $name,
+            shares_zhang => int($shares / 1000),
+            sitc_buy_zhang => int($sitc_buy / 1000),
+            sitc_ratio => $sitc_ratio,
+        };
+    }
 }
 
 @top_stocks = sort { $b->{sitc_ratio} <=> $a->{sitc_ratio} } @top_stocks;
 
 # Fetch daily quotes
 my $json_quotes = `curl -s "https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL"`;
-my $quotes_list = decode_json($json_quotes);
+my $quotes_list = eval { decode_json($json_quotes) } || [];
 my %quotes;
 for my $q (@$quotes_list) {
+    next unless ref($q) eq 'HASH' && exists $q->{Code};
     my $code = $q->{Code};
     $quotes{$code} = {
         close => $q->{ClosingPrice} + 0,
@@ -62,21 +85,25 @@ for my $q (@$quotes_list) {
     };
 }
 
-print "=== 📈 Goodinfo 投信買超 + 6大技術面指標評分選股報告 (2026/08/14) ===\n\n";
+print "=== 📈 Goodinfo 投信買超 + 6大技術面指標評分選股報告 ($display_date) ===\n\n";
 printf "%-4s | %-6s | %-10s | %-8s | %-10s | %-8s | %-10s\n", "排名", "代號", "股票名稱", "收盤價", "投超張數", "投本比%", "技術指標得分";
 print "-" x 75 . "\n";
 
-for my $i (0..14) {
-    last if $i >= @top_stocks;
-    my $s = $top_stocks[$i];
-    my $q = $quotes{$s->{code}} || {};
-    my $close = $q->{close} || 0;
-    
-    my $score = 4;
-    $score += 1 if $s->{sitc_ratio} > 0.5;
-    $score += 1 if $s->{sitc_buy_zhang} > 1000;
-    $score = 6 if $score > 6;
-    
-    printf "%-4d | %-6s | %-10s | %-8.2f | %-10d | %-8.3f%% | %d/6 分 ⭐\n",
-        $i+1, $s->{code}, $s->{name}, $close, $s->{sitc_buy_zhang}, $s->{sitc_ratio}, $score;
+if (@top_stocks == 0) {
+    print "⚠️ 目標交易日 ($display_date) 無符合條件或尚未有官方資料 (可能是非交易日或休市)\n";
+} else {
+    for my $i (0..14) {
+        last if $i >= @top_stocks;
+        my $s = $top_stocks[$i];
+        my $q = $quotes{$s->{code}} || {};
+        my $close = $q->{close} || 0;
+        
+        my $score = 4;
+        $score += 1 if $s->{sitc_ratio} > 0.5;
+        $score += 1 if $s->{sitc_buy_zhang} > 1000;
+        $score = 6 if $score > 6;
+        
+        printf "%-4d | %-6s | %-10s | %-8.2f | %-10d | %-8.3f%% | %d/6 分 ⭐\n",
+            $i+1, $s->{code}, $s->{name}, $close, $s->{sitc_buy_zhang}, $s->{sitc_ratio}, $score;
+    }
 }

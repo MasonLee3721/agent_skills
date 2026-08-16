@@ -13,7 +13,22 @@ import pandas as pd
 import subprocess
 from pathlib import Path
 
-SCRAPER = r"C:\openab\goodinfo-scraper"
+SKILL_DIR = Path(__file__).resolve().parent
+
+def resolve_scraper_dir():
+    if "SCRAPER_DIR" in os.environ and os.path.isdir(os.environ["SCRAPER_DIR"]):
+        return Path(os.environ["SCRAPER_DIR"]).resolve()
+    for parent in [SKILL_DIR, *SKILL_DIR.parents]:
+        cand = parent / "goodinfo-scraper"
+        if cand.is_dir():
+            return cand
+        cand_sub = parent.parent / "goodinfo-scraper"
+        if cand_sub.is_dir():
+            return cand_sub
+    default_dir = Path(r"C:\openab\goodinfo-scraper") if os.name == "nt" else Path("/home/agent/goodinfo-scraper")
+    return default_dir
+
+SCRAPER = str(resolve_scraper_dir())
 TRUST_PCT_COL = "當日買賣超佔發行張數"
 FOREIGN_PCT_COL = "當日買賣超佔發行張數"
 MIN_TRUST = 0.1
@@ -21,7 +36,8 @@ MIN_FOREIGN = 0.6
 TOP_N = 10
 CHART_N = 5
 
-sys.path.insert(0, SCRAPER)
+if SCRAPER not in sys.path:
+    sys.path.insert(0, SCRAPER)
 from discord_send import send_text, send_image
 
 def load_latest(folder):

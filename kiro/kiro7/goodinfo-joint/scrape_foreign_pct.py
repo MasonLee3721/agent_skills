@@ -4,9 +4,25 @@
 """
 import requests, time, csv, os
 from datetime import date
+from pathlib import Path
 from bs4 import BeautifulSoup
 
-REPO_DIR = r"C:\openab\goodinfo-scraper"
+SKILL_DIR = Path(__file__).resolve().parent
+
+def resolve_scraper_dir():
+    if "SCRAPER_DIR" in os.environ and os.path.isdir(os.environ["SCRAPER_DIR"]):
+        return Path(os.environ["SCRAPER_DIR"]).resolve()
+    for parent in [SKILL_DIR, *SKILL_DIR.parents]:
+        cand = parent / "goodinfo-scraper"
+        if cand.is_dir():
+            return cand
+        cand_sub = parent.parent / "goodinfo-scraper"
+        if cand_sub.is_dir():
+            return cand_sub
+    default_dir = Path(r"C:\openab\goodinfo-scraper") if os.name == "nt" else Path("/home/agent/goodinfo-scraper")
+    return default_dir
+
+REPO_DIR = str(resolve_scraper_dir())
 FOLDER = "data_foreign_pct"
 
 API = (
@@ -27,8 +43,15 @@ HEADERS = {
 
 def fetch():
     session = requests.Session()
-    session.cookies.set("CLIENT_KEY", "2.5|41094.0082828283|46649.5638383838|8|46144.5|46144.5|",
-                        domain="goodinfo.tw", path="/")
+    client_key = os.environ.get("GOODINFO_CLIENT_KEY")
+    if client_key:
+        session.cookies.set("CLIENT_KEY", client_key, domain="goodinfo.tw", path="/")
+    else:
+        try:
+            session.get("https://goodinfo.tw/tw2/StockList.asp", headers=HEADERS, timeout=15)
+        except Exception as e:
+            print(f" Goodinfo 建立 session 提示：{e}")
+
     for attempt in range(3):
         try:
             r = session.get(API, headers=HEADERS, timeout=45)

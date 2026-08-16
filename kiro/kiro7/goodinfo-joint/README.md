@@ -11,13 +11,15 @@
 
 ## 資料來源
 
-- 投信：`C:\openab\goodinfo-scraper\data\YYYY-MM-DD.csv`（由 goodinfo-trust 爬取）
-- 外資佔股本比：`C:\openab\goodinfo-scraper\data_foreign_pct\YYYY-MM-DD.csv`（本 skill 爬取）
+## 資料來源
+
+- 投信：`goodinfo-scraper/data/YYYY-MM-DD.csv`（由 goodinfo-trust 爬取）
+- 外資佔股本比：`goodinfo-scraper/data_foreign_pct/YYYY-MM-DD.csv`（本 skill 爬取）
 
 ## 執行方式
 
-```
-python C:\openab\agent_skills\kiro\kiro7\goodinfo-joint\run.py
+```bash
+python kiro/kiro7/goodinfo-joint/run.py
 ```
 
 ## Pipeline
