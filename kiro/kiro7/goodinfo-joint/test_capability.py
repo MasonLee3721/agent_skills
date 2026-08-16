@@ -1,12 +1,13 @@
 """
 test_capability.py - AST 執行期能力檢驗與命名空間隔離單元測試 (goodinfo-joint)
-測試涵蓋 6 大情境：
+測試涵蓋 7 大情境：
 1. 正向案例 (包含 os.environ.get('CHART_SCRIPT') 或 os.environ['CHART_SCRIPT'])
 2. 能力缺失案例 (無 CHART_SCRIPT 邏輯)
 3. 純註解/假陽性案例 (僅在註解中或 fake.environ 出現)
 4. 語法錯誤案例 (無效 Python 語法)
 5. 模組載入零副作用測試 (import 0 次 subprocess.run 呼叫)
-6. main() 控制流 Smoke Test (在安全 Mock 下驗證 main 執行)
+6. main() 控制流 Smoke Test (在安全 Mock 下驗證 main 執行與 Temp 隔離)
+7. main() 步驟失敗 Exit Non-Zero 測試 (驗證錯誤傳播)
 """
 import unittest
 import sys
@@ -24,7 +25,8 @@ class TestScraperCapabilityAST(unittest.TestCase):
             cls.spec = importlib.util.spec_from_file_location("goodinfo_joint_run_module", cls.RUN_PY_PATH)
             cls.goodinfo_joint_run = importlib.util.module_from_spec(cls.spec)
             cls.spec.loader.exec_module(cls.goodinfo_joint_run)
-            cls.inspect_ast_for_chart_script = cls.goodinfo_joint_run.inspect_ast_for_chart_script
+            # 使用 staticmethod 封裝，避免類別屬性轉 instance method 時引發 self 參數錯位
+            cls.inspect_ast_for_chart_script = staticmethod(cls.goodinfo_joint_run.inspect_ast_for_chart_script)
             mock_sub.assert_not_called()
 
     def test_positive_case_get(self):
