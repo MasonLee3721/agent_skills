@@ -14,12 +14,12 @@ def resolve_scraper_dir():
     for parent in [SKILL_DIR, *SKILL_DIR.parents]:
         cand = parent / "goodinfo-scraper"
         if cand.is_dir():
-            return cand
+            return cand.resolve()
         cand_sub = parent.parent / "goodinfo-scraper"
         if cand_sub.is_dir():
-            return cand_sub
-    default_dir = Path(r"C:\openab\goodinfo-scraper") if os.name == "nt" else Path("/home/agent/goodinfo-scraper")
-    return default_dir
+            return cand_sub.resolve()
+    fallback = SKILL_DIR.parent.parent.parent / "goodinfo-scraper"
+    return fallback.resolve()
 
 SCRAPER = resolve_scraper_dir()
 
@@ -27,7 +27,7 @@ def get_secret(key):
     val = os.environ.get(key)
     if val:
         return val
-    for base in [SKILL_DIR.parent.parent.parent.parent, Path(r"C:\openab") if os.name == "nt" else Path("/home/agent")]:
+    for base in [SKILL_DIR, *SKILL_DIR.parents]:
         sm = base / "passkey" / "secrets_manager.py"
         if sm.exists():
             try:

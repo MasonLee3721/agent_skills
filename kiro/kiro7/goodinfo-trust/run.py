@@ -13,12 +13,13 @@ def resolve_scraper_dir():
     for parent in [SKILL_DIR, *SKILL_DIR.parents]:
         cand = parent / "goodinfo-scraper"
         if cand.is_dir():
-            return cand
+            return cand.resolve()
         cand_sub = parent.parent / "goodinfo-scraper"
         if cand_sub.is_dir():
-            return cand_sub
-    default_dir = Path(r"C:\openab\goodinfo-scraper") if os.name == "nt" else Path("/home/agent/goodinfo-scraper")
-    return default_dir
+            return cand_sub.resolve()
+    # 預設探索同級或上一層之 goodinfo-scraper
+    fallback = SKILL_DIR.parent.parent.parent / "goodinfo-scraper"
+    return fallback.resolve()
 
 SCRAPER = resolve_scraper_dir()
 
@@ -26,8 +27,8 @@ def get_secret(key):
     val = os.environ.get(key)
     if val:
         return val
-    # Fallback call to secrets_manager.py if available
-    for base in [SKILL_DIR.parent.parent.parent.parent, Path(r"C:\openab") if os.name == "nt" else Path("/home/agent")]:
+    # 安全走訪搜尋 secrets_manager.py
+    for base in [SKILL_DIR, *SKILL_DIR.parents]:
         sm = base / "passkey" / "secrets_manager.py"
         if sm.exists():
             try:
@@ -42,7 +43,7 @@ def run(step, script, cwd=SCRAPER, env=None):
     print(f"[{step}] {script}...")
     r = subprocess.run([PYTHON, script], cwd=str(cwd), env=env, capture_output=False)
     if r.returncode != 0:
-        print(f"FAILED at step {step}")
+        print(f"❌ FAILED at step {step}")
         sys.exit(1)
 
 # 動態補充 Python site-packages
@@ -61,29 +62,28 @@ if token:
 if thread_id:
     env["DISCORD_CHANNEL_ID"] = thread_id
 
-# Step 0: patch
-print("[0/6] patch scripts for current platform...")
-subprocess.run([PYTHON, str(SKILL_DIR / "patch_for_windows.py")], capture_output=False)
-
 # Step 1-5
 for step, script in [
-    ("1/6", "scrape_goodinfo.py"),
-    ("2/6", "scrape_foreign.py"),
-    ("3/6", "analyze.py"),
-    ("4/6", "trust_trend.py"),
-    ("5/6", "screen.py"),
+    ("1/5", "scrape_goodinfo.py"),
+    ("2/5", "scrape_foreign.py"),
+    ("3/5", "analyze.py"),
+    ("4/5", "trust_trend.py"),
+    ("5/5", "screen.py"),
 ]:
     run(step, script, cwd=SCRAPER, env=env)
 
 # Step 6: recommend（零檔案覆蓋，經由環境變數傳遞自訂 K線圖繪製腳本）
-print("[6/6] recommend + chart...")
+print("[recommend] recommend + chart...")
 chart_win = str(SKILL_DIR / "chart_draw_win.py")
 env["CHART_SCRIPT"] = chart_win
 
 temp_dir = os.environ.get("TEMP", str(SCRAPER))
 recommend_out = os.path.join(temp_dir, "recommend_out.txt")
 with open(recommend_out, "w", encoding="utf-8") as f:
-    subprocess.run([PYTHON, "recommend.py"], cwd=str(SCRAPER), env=env, stdout=f, stderr=f)
+    res = subprocess.run([PYTHON, "recommend.py"], cwd=str(SCRAPER), env=env, stdout=f, stderr=f)
+    if res.returncode != 0:
+        print(f"❌ FAILED at recommend.py (exit code {res.returncode})")
+        sys.exit(1)
 
 # 印出推薦結果
 import io
@@ -93,9 +93,12 @@ if os.path.exists(recommend_out):
     print(open(recommend_out, encoding="utf-8", errors="ignore").read())
 
 # 傳送 Discord
-subprocess.run([PYTHON, str(SKILL_DIR / "send_recommend.py"),
-                recommend_out, env.get("DISCORD_CHANNEL_ID", "")],
-               env=env, capture_output=False)
+res_discord = subprocess.run([PYTHON, str(SKILL_DIR / "send_recommend.py"),
+                              recommend_out, env.get("DISCORD_CHANNEL_ID", "")],
+                             env=env, capture_output=False)
+if res_discord.returncode != 0:
+    print(f"❌ FAILED at send_recommend.py (exit code {res_discord.returncode})")
+    sys.exit(1)
 
 print(f"Done. Charts: {SCRAPER / 'charts'}")
 

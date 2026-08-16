@@ -23,12 +23,12 @@ def resolve_scraper_dir():
     for parent in [SKILL_DIR, *SKILL_DIR.parents]:
         cand = parent / "goodinfo-scraper"
         if cand.is_dir():
-            return cand
+            return cand.resolve()
         cand_sub = parent.parent / "goodinfo-scraper"
         if cand_sub.is_dir():
-            return cand_sub
-    default_dir = Path(r"C:\openab\goodinfo-scraper") if os.name == "nt" else Path("/home/agent/goodinfo-scraper")
-    return default_dir
+            return cand_sub.resolve()
+    fallback = SKILL_DIR.parent.parent.parent / "goodinfo-scraper"
+    return fallback.resolve()
 
 SCRAPER = resolve_scraper_dir()
 if str(SCRAPER) not in sys.path:

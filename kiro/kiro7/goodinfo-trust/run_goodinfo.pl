@@ -9,21 +9,40 @@ use POSIX qw(strftime);
 binmode(STDOUT, ":utf8");
 binmode(STDERR, ":utf8");
 
-# 動態計算目標交易日
-sub get_target_date {
-    if (@ARGV && $ARGV[0] =~ /^\d{8}$/) {
-        return $ARGV[0];
-    }
-    my ($sec,$min,$hour,$mday,$mon,$year,$wday,$yday,$isdst) = localtime(time);
-    if ($wday == 6) { # 週六 -> 往前移至週五
-        ($sec,$min,$hour,$mday,$mon,$year,$wday,$yday,$isdst) = localtime(time - 86400);
-    } elsif ($wday == 0) { # 週日 -> 往前移至週五
-        ($sec,$min,$hour,$mday,$mon,$year,$wday,$yday,$isdst) = localtime(time - 172800);
-    }
-    return strftime("%Y%m%d", $sec,$min,$hour,$mday,$mon,$year,$wday,$yday,$isdst);
+sub fetch_json_curl {
+    my ($url) = @_;
+    my $json_text = `curl -s "$url"`;
+    return eval { decode_json($json_text) } || undef;
 }
 
-my $target_date = get_target_date();
+# 動態向後搜尋最新成功發布之交易日 (最多倒退 10 天處理假日、休市與盤中未發布)
+sub find_latest_trading_date {
+    my ($specified) = @_;
+    if (defined $specified && $specified =~ /^\d{8}$/) {
+        my $url = "https://www.twse.com.tw/rwd/zh/fund/T86?response=json&date=$specified&selectType=ALLBUT0999";
+        my $data = fetch_json_curl($url);
+        return ($specified, $data);
+    }
+
+    my $now = time();
+    for (my $i = 0; $i < 10; $i++) {
+        my $t = $now - ($i * 86400);
+        my ($sec,$min,$hour,$mday,$mon,$year,$wday,$yday,$isdst) = localtime($t);
+        next if ($wday == 0 || $wday == 6); # 跳過假日
+
+        my $date_str = strftime("%Y%m%d", $sec,$min,$hour,$mday,$mon,$year,$wday,$yday,$isdst);
+        my $url = "https://www.twse.com.tw/rwd/zh/fund/T86?response=json&date=$date_str&selectType=ALLBUT0999";
+        my $data = fetch_json_curl($url);
+
+        if ($data && ref($data) eq 'HASH' && ($data->{stat} || '') eq 'OK' && $data->{data} && ref($data->{data}) eq 'ARRAY' && @{$data->{data}} > 0) {
+            return ($date_str, $data);
+        }
+    }
+    return (strftime("%Y%m%d", localtime()), undef);
+}
+
+my $specified_param = (@ARGV && $ARGV[0] =~ /^\d{8}$/) ? $ARGV[0] : undef;
+my ($target_date, $t86_data) = find_latest_trading_date($specified_param);
 my $display_date = sprintf("%s/%s/%s", substr($target_date,0,4), substr($target_date,4,2), substr($target_date,6,2));
 
 # 1. Fetch TWSE Capital
@@ -41,10 +60,6 @@ for my $c (@$cap_list) {
         shares => ($cap + 0) / 10,
     };
 }
-
-# 2. Fetch TWSE T86
-my $json_t86 = `curl -s "https://www.twse.com.tw/rwd/zh/fund/T86?response=json&date=$target_date&selectType=ALLBUT0999"`;
-my $t86_data = eval { decode_json($json_t86) } || {};
 
 my @top_stocks;
 if ($t86_data && ref($t86_data) eq 'HASH' && $t86_data->{data} && ref($t86_data->{data}) eq 'ARRAY') {

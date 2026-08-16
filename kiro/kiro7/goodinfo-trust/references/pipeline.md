@@ -47,5 +47,5 @@ data/*.csv + data_foreign/*.csv + Yahoo Finance API
 - 來源：yfinance（Yahoo Finance）
 - 格式：mplfinance candlestick
 - 字型：Windows 版使用微軟正黑體（chart_draw_win.py）
-- 輸出：`C:\openab\goodinfo-scraper\charts\{代號}.png`
-- run.bat 執行時自動替換 chart_draw.py → chart_draw_win.py，結束後還原
+- 輸出：`goodinfo-scraper/charts/{代號}.png`
+- 執行時透過環境變數 `CHART_SCRIPT` 指定繪圖腳本（`chart_draw_win.py`），零檔案覆蓋零污染
