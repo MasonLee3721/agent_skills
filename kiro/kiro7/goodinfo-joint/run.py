@@ -69,48 +69,30 @@ def check_scraper_capability():
             sys.exit(1)
     print("✅ goodinfo-scraper 雙檔案 (recommend.py, trust_trend.py) AST 語法樹級別能力檢查通過")
 
-check_scraper_capability()
+def main():
+    check_scraper_capability()
 
-def get_secret(key):
-    val = os.environ.get(key)
-    if val:
-        return val
-    for base in [SKILL_DIR, *SKILL_DIR.parents]:
-        sm = base / "passkey" / "secrets_manager.py"
-        if sm.exists():
-            try:
-                r = subprocess.run([PYTHON, str(sm), "get", key], capture_output=True, text=True)
-                if r.returncode == 0 and r.stdout.strip():
-                    return r.stdout.strip()
-            except Exception:
-                pass
-    return ""
+    # 動態補充 Python site-packages
+    user_site = site.getusersitepackages()
+    if user_site and os.path.isdir(user_site) and user_site not in sys.path:
+        sys.path.insert(0, user_site)
 
-def run(label, script, cwd=SCRAPER, env=None):
-    print(f"[{label}] {os.path.basename(script)}...")
-    r = subprocess.run([PYTHON, str(script)], cwd=str(cwd), env=env)
-    if r.returncode != 0:
-        print(f"FAILED at {label}")
-        sys.exit(1)
+    env = os.environ.copy()
+    env["PYTHONIOENCODING"] = "utf-8"
+    env["SCRAPER_DIR"] = str(SCRAPER)
 
-# 動態補充 Python site-packages
-user_site = site.getusersitepackages()
-if user_site and os.path.isdir(user_site) and user_site not in sys.path:
-    sys.path.insert(0, user_site)
+    token = get_secret("DISCORD_BOT_TOKEN")
+    thread_id = get_secret("DISCORD_THREAD_ID")
+    if token:     env["DISCORD_BOT_TOKEN"] = token
+    if thread_id: env["DISCORD_CHANNEL_ID"] = thread_id
 
-env = os.environ.copy()
-env["PYTHONIOENCODING"] = "utf-8"
-env["SCRAPER_DIR"] = str(SCRAPER)
+    # Step 1: 爬外資佔股本比
+    run("1/2", SKILL_DIR / "scrape_foreign_pct.py", cwd=SKILL_DIR, env=env)
 
-token = get_secret("DISCORD_BOT_TOKEN")
-thread_id = get_secret("DISCORD_THREAD_ID")
-if token:     env["DISCORD_BOT_TOKEN"] = token
-if thread_id: env["DISCORD_CHANNEL_ID"] = thread_id
+    # Step 2: 分析 + 輸出 + Discord
+    run("2/2", SKILL_DIR / "analyze_joint.py", cwd=SKILL_DIR, env=env)
 
-# Step 1: 爬外資佔股本比
-run("1/2", SKILL_DIR / "scrape_foreign_pct.py", cwd=SKILL_DIR, env=env)
+    print("Done.")
 
-# Step 2: 分析 + 輸出 + Discord
-run("2/2", SKILL_DIR / "analyze_joint.py", cwd=SKILL_DIR, env=env)
-
-print("Done.")
+if __name__ == "__main__":
+    main()
