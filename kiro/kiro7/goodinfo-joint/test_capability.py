@@ -25,8 +25,6 @@ class TestScraperCapabilityAST(unittest.TestCase):
             cls.spec = importlib.util.spec_from_file_location("goodinfo_joint_run_module", cls.RUN_PY_PATH)
             cls.goodinfo_joint_run = importlib.util.module_from_spec(cls.spec)
             cls.spec.loader.exec_module(cls.goodinfo_joint_run)
-            # 使用 staticmethod 封裝，避免類別屬性轉 instance method 時引發 self 參數錯位
-            cls.inspect_ast_for_chart_script = staticmethod(cls.goodinfo_joint_run.inspect_ast_for_chart_script)
             mock_sub.assert_not_called()
 
     def test_positive_case_get(self):
@@ -35,7 +33,7 @@ import os
 script = os.environ.get("CHART_SCRIPT") or "chart_draw.py"
 print("OK")
 '''
-        ok, msg = self.inspect_ast_for_chart_script(code)
+        ok, msg = self.goodinfo_joint_run.inspect_ast_for_chart_script(code)
         self.assertTrue(ok, f"應通過正向 get 案例: {msg}")
 
     def test_positive_case_subscript(self):
@@ -43,7 +41,7 @@ print("OK")
 import os
 script = os.environ["CHART_SCRIPT"]
 '''
-        ok, msg = self.inspect_ast_for_chart_script(code)
+        ok, msg = self.goodinfo_joint_run.inspect_ast_for_chart_script(code)
         self.assertTrue(ok, f"應通過正向 subscript 案例: {msg}")
 
     def test_missing_capability(self):
@@ -51,7 +49,7 @@ script = os.environ["CHART_SCRIPT"]
 import os
 print("Hello World")
 '''
-        ok, msg = self.inspect_ast_for_chart_script(code)
+        ok, msg = self.goodinfo_joint_run.inspect_ast_for_chart_script(code)
         self.assertFalse(ok, "無能力案例應判定失敗")
 
     def test_pure_comment_case(self):
@@ -63,7 +61,7 @@ os.environ["CHART_SCRIPT"] in docstring
 """
 print("Comment test")
 '''
-        ok, msg = self.inspect_ast_for_chart_script(code)
+        ok, msg = self.goodinfo_joint_run.inspect_ast_for_chart_script(code)
         self.assertFalse(ok, "純註解/Docstring 案例應判定失敗")
 
     def test_fake_environ_case(self):
@@ -71,14 +69,14 @@ print("Comment test")
 fake = type('Fake', (), {'environ': {'CHART_SCRIPT': 'hack'}})
 script = fake.environ.get("CHART_SCRIPT")
 '''
-        ok, msg = self.inspect_ast_for_chart_script(code)
+        ok, msg = self.goodinfo_joint_run.inspect_ast_for_chart_script(code)
         self.assertFalse(ok, "fake.environ 假陽性案例應判定失敗")
 
     def test_syntax_error_case(self):
         code = '''
 def invalid_python_syntax(
 '''
-        ok, msg = self.inspect_ast_for_chart_script(code)
+        ok, msg = self.goodinfo_joint_run.inspect_ast_for_chart_script(code)
         self.assertFalse(ok, "語法錯誤案例應判定失敗")
 
     def test_import_no_side_effects(self):
