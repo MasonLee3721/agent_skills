@@ -25,6 +25,7 @@ cmd /c "%CD%\kiro\kiro7\goodinfo-trust\run.bat"
 ## 前置條件
 
 1. `goodinfo-scraper` 儲存庫已下載（同級目錄或指定 `SCRAPER_DIR`）
+   - 最低相容 Commit：`goodinfo-scraper` Commit `@9a6ffb9` 或更新版本（支援 `CHART_SCRIPT` 原生載入）
    - 若不存在：`git clone https://github.com/MasonLee3721/goodinfo-scraper.git`
 2. `DISCORD_BOT_TOKEN` 已設定於系統環境變數或 `passkey/secrets_manager.py`
 3. 首次執行先執行套件安裝（`pip install -r requirements.txt` 或 `setup.bat`）
@@ -33,7 +34,6 @@ cmd /c "%CD%\kiro\kiro7\goodinfo-trust\run.bat"
 
 | 步驟 | 腳本 | 說明 |
 |------|------|------|
-| 0 | patch_for_windows.py | Windows 相容性修正（一次性） |
 | 1 | scrape_goodinfo.py | 爬投信買超排行 → data/*.csv |
 | 2 | scrape_foreign.py | 爬外資投信同買 → data_foreign/*.csv |
 | 3 | analyze.py | 分析連買天數與趨勢 |
@@ -57,10 +57,9 @@ cmd /c "%CD%\kiro\kiro7\goodinfo-trust\run.bat"
 
 ## 腳本說明
 
-- `run.bat`：主流程，自動注入 DISCORD_BOT_TOKEN，設定 PYTHONIOENCODING=utf-8
-- `patch_for_windows.py`：修正 trust_trend.py 的 Linux uv 指令為 sys.executable
+- `run.py`：主流程，自動探測路徑、注入環境變數、動態載入 `CHART_SCRIPT`
 - `send_recommend.py`：讀取 recommend 輸出 log，分段傳送至 Discord（每段 1900 字）
-- `chart_draw_win.py`：Windows 版 K 線圖，使用微軟正黑體，執行後自動還原原版
+- `chart_draw_win.py`：K 線圖繪製腳本，具備中文字型降級與跨平台相容性
 
 ## 注意事項
 

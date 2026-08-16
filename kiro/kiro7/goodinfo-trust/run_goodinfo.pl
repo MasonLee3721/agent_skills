@@ -43,6 +43,15 @@ sub find_latest_trading_date {
 
 my $specified_param = (@ARGV && $ARGV[0] =~ /^\d{8}$/) ? $ARGV[0] : undef;
 my ($target_date, $t86_data) = find_latest_trading_date($specified_param);
+
+# 若資料取得失敗，必須拋出錯誤並 exit non-zero，杜絕假成功
+unless (defined $t86_data && ref($t86_data) eq 'HASH' && ($t86_data->{stat} || '') eq 'OK' && $t86_data->{data} && ref($t86_data->{data}) eq 'ARRAY' && @{$t86_data->{data}} > 0) {
+    my $msg = defined $specified_param
+        ? "❌ 指定交易日 ($specified_param) 無法取得 TWSE 數據 (無效日期、休市或 API 異常)"
+        : "❌ 回溯搜尋近 10 日皆無法取得 TWSE 數據 (請檢查網路連線或 API 狀態)";
+    die "$msg\n";
+}
+
 my $display_date = sprintf("%s/%s/%s", substr($target_date,0,4), substr($target_date,4,2), substr($target_date,6,2));
 
 # 1. Fetch TWSE Capital

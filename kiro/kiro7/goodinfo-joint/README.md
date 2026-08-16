@@ -11,10 +11,9 @@
 
 ## 資料來源
 
-## 資料來源
-
 - 投信：`goodinfo-scraper/data/YYYY-MM-DD.csv`（由 goodinfo-trust 爬取）
 - 外資佔股本比：`goodinfo-scraper/data_foreign_pct/YYYY-MM-DD.csv`（本 skill 爬取）
+- 最低相容 Commit：`goodinfo-scraper` Commit `@9a6ffb9` 或更新版本
 
 ## 執行方式
 
