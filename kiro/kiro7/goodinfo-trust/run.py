@@ -23,22 +23,43 @@ def resolve_scraper_dir():
 
 SCRAPER = resolve_scraper_dir()
 
+import ast
+
 def check_scraper_capability():
     recommend_py = SCRAPER / "recommend.py"
     if not recommend_py.exists():
         print(f"❌ 找不到 goodinfo-scraper 程式檔：{recommend_py}")
         sys.exit(1)
-    content = recommend_py.read_text(encoding="utf-8", errors="ignore")
-    has_env_read = any(s in content for s in [
-        'os.environ.get("CHART_SCRIPT")',
-        "os.environ.get('CHART_SCRIPT')",
-        'os.environ["CHART_SCRIPT"]',
-        "os.environ['CHART_SCRIPT']"
-    ])
-    if not has_env_read:
-        print(f"❌ goodinfo-scraper ({SCRAPER}) 未包含 os.environ 讀取 CHART_SCRIPT 之邏輯，請更新至 Commit @9a6ffb9 或更新版本！")
+
+    code = recommend_py.read_text(encoding="utf-8", errors="ignore")
+    try:
+        tree = ast.parse(code, filename=str(recommend_py))
+    except Exception as e:
+        print(f"❌ 解析 {recommend_py} AST 抽象語法樹失敗：{e}")
         sys.exit(1)
-    print("✅ goodinfo-scraper os.environ[\"CHART_SCRIPT\"] 執行期能力精確檢查通過")
+
+    found_ast_read = False
+    for node in ast.walk(tree):
+        # 匹配 Call 節點: os.environ.get("CHART_SCRIPT")
+        if isinstance(node, ast.Call):
+            func = node.func
+            if isinstance(func, ast.Attribute) and func.attr == 'get':
+                val = func.value
+                if isinstance(val, ast.Attribute) and val.attr == 'environ':
+                    if node.args and getattr(node.args[0], 'value', None) == 'CHART_SCRIPT':
+                        found_ast_read = True; break
+        # 匹配 Subscript 節點: os.environ["CHART_SCRIPT"]
+        elif isinstance(node, ast.Subscript):
+            val = node.value
+            if isinstance(val, ast.Attribute) and val.attr == 'environ':
+                slice_val = getattr(node.slice, 'value', None)
+                if slice_val == 'CHART_SCRIPT':
+                    found_ast_read = True; break
+
+    if not found_ast_read:
+        print(f"❌ AST 檢驗失敗：goodinfo-scraper ({SCRAPER}) 語法樹中未發現讀取 os.environ['CHART_SCRIPT'] 之程式碼節點！")
+        sys.exit(1)
+    print("✅ goodinfo-scraper AST 抽象語法樹級別能力檢查通過")
 
 check_scraper_capability()
 
