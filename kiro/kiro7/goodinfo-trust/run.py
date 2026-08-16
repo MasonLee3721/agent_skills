@@ -67,7 +67,27 @@ def check_scraper_capability():
         if not ok:
             print(f"❌ AST 檢驗失敗 ({file_name})：{msg}，請更新至 Commit @9a6ffb9 或更新版本！")
             sys.exit(1)
-    print("✅ goodinfo-scraper 雙檔案 (recommend.py, trust_trend.py) AST 語法樹級別能力檢查通過")
+def get_secret(key):
+    val = os.environ.get(key)
+    if val:
+        return val
+    for base in [SKILL_DIR, *SKILL_DIR.parents]:
+        sm = base / "passkey" / "secrets_manager.py"
+        if sm.exists():
+            try:
+                r = subprocess.run([PYTHON, str(sm), "get", key], capture_output=True, text=True)
+                if r.returncode == 0 and r.stdout.strip():
+                    return r.stdout.strip()
+            except Exception:
+                pass
+    return ""
+
+def run(step, script, cwd=SCRAPER, env=None):
+    print(f"[{step}] {script}...")
+    r = subprocess.run([PYTHON, script], cwd=str(cwd), env=env, capture_output=False)
+    if r.returncode != 0:
+        print(f"❌ FAILED at step {step}")
+        sys.exit(1)
 
 def main():
     check_scraper_capability()
