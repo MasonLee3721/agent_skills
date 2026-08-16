@@ -1,18 +1,26 @@
 """
-test_capability.py - AST 執行期能力檢驗單元測試 (goodinfo-joint)
-測試涵蓋 4 大情境：
+test_capability.py - AST 執行期能力檢驗與命名空間隔離單元測試 (goodinfo-joint)
+測試涵蓋 6 大情境：
 1. 正向案例 (包含 os.environ.get('CHART_SCRIPT') 或 os.environ['CHART_SCRIPT'])
 2. 能力缺失案例 (無 CHART_SCRIPT 邏輯)
 3. 純註解/假陽性案例 (僅在註解中或 fake.environ 出現)
 4. 語法錯誤案例 (無效 Python 語法)
+5. 模組載入零副作用測試 (import 0 次 subprocess.run 呼叫)
+6. main() 控制流 Smoke Test (在安全 Mock 下驗證 main 執行)
 """
 import unittest
 import sys
+import importlib.util
 from pathlib import Path
+from unittest.mock import patch, MagicMock
 
-# 匯入能力檢查核心邏輯
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-from run import inspect_ast_for_chart_script
+# 採用絕對檔案路徑 + 獨特模組名稱載入，防止 sys.modules["run"] 命名空間污染
+RUN_PY_PATH = Path(__file__).resolve().parent / "run.py"
+spec = importlib.util.spec_from_file_location("goodinfo_joint_run_module", RUN_PY_PATH)
+goodinfo_joint_run = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(goodinfo_joint_run)
+
+inspect_ast_for_chart_script = goodinfo_joint_run.inspect_ast_for_chart_script
 
 class TestScraperCapabilityAST(unittest.TestCase):
 
@@ -69,15 +77,24 @@ def invalid_python_syntax(
         self.assertFalse(ok, "語法錯誤案例應判定失敗")
 
     def test_import_no_side_effects(self):
-        """驗證 import run 模組時完全無 subprocess.run 副作用 (0 次呼叫)"""
-        import importlib
-        from unittest.mock import patch
+        """驗證動態載入 run.py 模組時完全無 subprocess.run 副作用 (0 次呼叫)"""
         with patch("subprocess.run") as mock_sub:
-            if "run" in sys.modules:
-                importlib.reload(sys.modules["run"])
-            else:
-                import run
+            s = importlib.util.spec_from_file_location("goodinfo_joint_run_isolated", RUN_PY_PATH)
+            m = importlib.util.module_from_spec(s)
+            s.loader.exec_module(m)
             mock_sub.assert_not_called()
+
+    @patch("subprocess.run")
+    @patch.object(goodinfo_joint_run, "check_scraper_capability")
+    def test_main_smoke_test(self, mock_check_cap, mock_sub):
+        """Smoke Test: 驗證 main() 控制流在安全 Mock 下可正常運作"""
+        mock_sub.return_value.returncode = 0
+        mock_sub.return_value.stdout = "OK"
+        try:
+            goodinfo_joint_run.main()
+        except SystemExit as e:
+            self.assertEqual(e.code, 0)
+        self.assertTrue(mock_check_cap.called, "main() 應正常調用 check_scraper_capability")
 
 if __name__ == "__main__":
     unittest.main()
