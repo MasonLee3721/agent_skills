@@ -29,10 +29,16 @@ def check_scraper_capability():
         print(f"❌ 找不到 goodinfo-scraper 程式檔：{recommend_py}")
         sys.exit(1)
     content = recommend_py.read_text(encoding="utf-8", errors="ignore")
-    if "CHART_SCRIPT" not in content:
-        print(f"❌ goodinfo-scraper ({SCRAPER}) 不支援 CHART_SCRIPT 載入能力，請更新 goodinfo-scraper 至 Commit @9a6ffb9 或更新版本！")
+    has_env_read = any(s in content for s in [
+        'os.environ.get("CHART_SCRIPT")',
+        "os.environ.get('CHART_SCRIPT')",
+        'os.environ["CHART_SCRIPT"]',
+        "os.environ['CHART_SCRIPT']"
+    ])
+    if not has_env_read:
+        print(f"❌ goodinfo-scraper ({SCRAPER}) 未包含 os.environ 讀取 CHART_SCRIPT 之邏輯，請更新至 Commit @9a6ffb9 或更新版本！")
         sys.exit(1)
-    print("✅ goodinfo-scraper CHART_SCRIPT 執行期能力檢查通過")
+    print("✅ goodinfo-scraper os.environ[\"CHART_SCRIPT\"] 執行期能力精確檢查通過")
 
 check_scraper_capability()
 
