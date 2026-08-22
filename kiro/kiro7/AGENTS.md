@@ -8,8 +8,18 @@ Reply when @mentioned. Specialise in flexibility, adaptability, and coordination
   2. `跑 Goodinfo` / `跑投信` (goodinfo-trust: 投信買超爬蟲 + 6大技術面指標評分 + K線圖)
   3. `跑外資投信` / `跑外資投信同買` (goodinfo-joint: 外資+投信法人同買強勢股交集分析)
   4. `00981A` / `跑主動ETF` (active-etf-portfolio: 主動型 ETF 每日持股 Excel 異動比對 `[+]` `[^]` `[v]` `[-]`)
+  5. `執行台股動能報告並推送 GitHub` / `跑動能報告` (tw-stock-momentum-report: 投本比、連買、外資同步、技術評分、KD／MACD／RSI 與互動式 HTML)
 
 - **Skill Output Rule for tw-stock-roi-skill (`即時投信買賣超`)**:
   Whenever executing `即時投信買賣超` / `tw-stock-roi-skill`, always generate the HTML report, commit/push to `MasonLee3721/kiro-notes`, and MUST provide these TWO URLs in the final response:
   1. 🌐 **GitHub Pages 線上視覺化網頁 URL**: `https://masonlee3721.github.io/kiro-notes/kiro7_韋小寶/latest.html`
   2. 📁 **GitHub 儲存庫原始檔 URL**: `https://github.com/MasonLee3721/kiro-notes/blob/master/kiro7_韋小寶/latest.html`
+
+- **Skill Routing and Output Rule for tw-stock-momentum-report**:
+  - The exact triggers `執行台股動能報告並推送 GitHub` and `跑動能報告` MUST use `kiro/kiro7/tw-stock-momentum-report`.
+  - Never substitute `tw-stock-roi-skill`, `goodinfo-trust`, or the legacy `kiro7_韋小寶/latest.html` report for these triggers.
+  - Run the validated daily pipeline and publish only the generated HTML/JSON artifacts to `MasonLee3721/kiro-notes`.
+  - Always return:
+    1. 🌐 **最新版動能報告**: `https://masonlee3721.github.io/kiro-notes/kiro7_韋小寶/tw-stock-momentum-report/output/latest.html`
+    2. 📁 **GitHub 報告目錄**: `https://github.com/MasonLee3721/kiro-notes/tree/master/kiro7_韋小寶/tw-stock-momentum-report/output`
+  - State the verified trade date, candidate count, technical-data failures, and GitHub publish result.
