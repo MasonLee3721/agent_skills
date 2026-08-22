@@ -1,0 +1,4 @@
+interface:
+  display_name: "台股投本比動能報告"
+  short_description: "篩選台股投信籌碼與技術動能，產生互動式量化研究報告"
+  default_prompt: "使用 $tw-stock-momentum-report 依最新已完成交易日產生台股投本比短線波段 HTML 報告。"
