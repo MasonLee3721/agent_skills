@@ -1,10 +1,13 @@
-# 每日排程建議
+# 每日排程
 
-建議於台灣時間 18:30 啟動，避免交易所盤後資料尚未同步。包裝器預設每 15 分鐘重試一次，共 16 次，最多涵蓋 4 小時。
+正式排程部署在 `MasonLee3721/kiro-notes` 的 `.github/workflows/daily-tw-stock-momentum-report.yml`。
 
-```cron
-CRON_TZ=Asia/Taipei
-30 18 * * 1-5 cd /home/node/agent_skills_review/kiro/kiro7/tw-stock-momentum-report && /home/node/.local/bin/uv run --python 3.12 scripts/run_scheduled_daily.py --output-dir output --attempts 16 --interval-seconds 900
-```
+- 每天台灣時間 17:30 執行；GitHub Actions cron 為 `30 9 * * *`（UTC）。
+- 支援 `workflow_dispatch` 手動測試。
+- 從 `MasonLee3721/agent_skills@main` 取得本 Skill。
+- 執行 `scripts/run_scheduled_daily.py`，每 15 分鐘重試一次，最多 16 次。
+- 驗證成功後只更新 `kiro-notes/master` 內最新版 HTML、日期版 HTML、報告 JSON 與執行狀態。
+- 週末或國定假日仍會執行；若交易日及報告內容未變，不建立新 Commit。
+- 失敗時保留上一份 `latest.html`，不得發布半套報告。
 
-排程只應在確認實際部署路徑與執行帳號後安裝。國定假日會由四來源交易日一致性檢查處理；若沒有新資料，保留上一份 latest.html 並寫入失敗狀態與日誌。
+本機 cron 不作為正式排程，避免臨時容器重啟後排程消失。
