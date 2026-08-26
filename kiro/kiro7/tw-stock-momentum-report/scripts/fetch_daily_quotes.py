@@ -36,10 +36,16 @@ def decimal_text(value:Any)->str|None:
  if value is None:return None
  text=str(value).strip().replace(',','')
  if text in {'','--','---','N/A'}:return None
- text=text.replace('X','').replace('除權','').replace('除息','').strip()
+ text=text.replace('X','').replace('除權息','').replace('除權','').replace('除息','').strip()
  if not text:return None
  try:return format(Decimal(text),'f')
- except InvalidOperation as exc:raise QuoteDataError(f'invalid decimal: {value!r}') from exc
+ except InvalidOperation:
+  import re
+  match=re.search(r'[-+]?\d*\.?\d+',text)
+  if match:
+   try:return format(Decimal(match.group(0)),'f')
+   except InvalidOperation:pass
+  return None
 
 def _record(market:str,row:dict[str,Any],url:str,stamp:str,keys:dict[str,str],source:str)->QuoteRecord:
  code=str(row.get(keys['code'],'')).strip()

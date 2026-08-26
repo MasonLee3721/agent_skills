@@ -9,6 +9,7 @@ from dataclasses import asdict, dataclass
 from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
+from http.client import IncompleteRead
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
@@ -18,6 +19,7 @@ TPEX_URL = "https://www.tpex.org.tw/openapi/v1/tpex_3insti_daily_trading"
 
 class DataError(RuntimeError):
     pass
+
 
 
 @dataclass(frozen=True)
@@ -141,7 +143,7 @@ def fetch_json(url: str, timeout: float=20, attempts: int=3) -> tuple[Any,str]:
             with urlopen(request,timeout=timeout) as response:
                 raw=response.read(); fetched_at=datetime.now(timezone.utc).isoformat()
             return json.loads(raw.decode("utf-8-sig")), fetched_at
-        except (HTTPError,URLError,TimeoutError,json.JSONDecodeError,UnicodeDecodeError) as exc:
+        except (HTTPError,URLError,TimeoutError,IncompleteRead,json.JSONDecodeError,UnicodeDecodeError,OSError) as exc:
             error=exc
             if attempt+1<attempts: time.sleep(2**attempt)
     raise DataError(f"official fetch failed after {attempts} attempts: {error}")
