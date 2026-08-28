@@ -45,7 +45,7 @@ def decimal_text(value:Any)->str|None:
   if match:
    try:return format(Decimal(match.group(0)),'f')
    except InvalidOperation:pass
-  return None
+  raise QuoteDataError(f'invalid decimal: {value!r}')
 
 def _record(market:str,row:dict[str,Any],url:str,stamp:str,keys:dict[str,str],source:str)->QuoteRecord:
  code=str(row.get(keys['code'],'')).strip()

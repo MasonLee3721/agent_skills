@@ -26,6 +26,7 @@ def integer(value:Any)->int:
 
 def decimal_text(value:Any)->str:
  text=str(value).strip().replace(',','')
+ if text in {'--','---','X','--0.00',''}:return '0.00'
  if text.startswith('X'):text=text[1:]
  try:return format(Decimal(text),'f')
  except InvalidOperation as exc:raise PriceHistoryError(f'invalid price: {value!r}') from exc
@@ -75,14 +76,18 @@ def cache_path(cache_dir:Path,market:str,code:str,month:date)->Path:
  safe_market='twse' if market=='TWSE' else 'tpex'
  return cache_dir/safe_market/code/f'{month:%Y%m}.json'
 
-def cached_month(market:str,code:str,month:date,cache_dir:Path|None=None,refresh:bool=False)->list[dict[str,Any]]:
+def cached_month(market:str,code:str,month:date,cache_dir:Path|None=None,refresh:bool=False,target_end_date:str|None=None)->list[dict[str,Any]]:
  path=cache_path(cache_dir,market,code,month) if cache_dir else None
  if path and path.exists() and not refresh:
   try:
    doc=json.loads(path.read_text(encoding='utf-8'));rows=doc.get('rows')
    if doc.get('market')!=market or doc.get('stock_code')!=code or doc.get('month')!=month.strftime('%Y-%m') or not isinstance(rows,list):raise ValueError('cache metadata mismatch')
-   return rows
-  except (OSError,json.JSONDecodeError,ValueError) as exc:raise PriceHistoryError(f'invalid price cache {path}: {exc}') from exc
+   if target_end_date and month.strftime('%Y-%m')==target_end_date[:7]:
+    if not any(r.get('trade_date')==target_end_date for r in rows):
+     rows=None
+   if rows is not None:return rows
+  except (OSError,json.JSONDecodeError,ValueError) as exc:
+   raise PriceHistoryError(f'invalid price cache {path}: {exc}') from exc
  rows=fetch_month(market,code,month)
  if path:
   path.parent.mkdir(parents=True,exist_ok=True);tmp=path.with_suffix('.tmp')
@@ -133,7 +138,11 @@ def collect(targets_path:Path,end_date:str,days:int,max_months:int=12,cache_dir:
   market=target['market'];code=target['stock_code'];month=date(end.year,end.month,1);by_date={}
   try:
    for _ in range(max_months):
-    for row in cached_month(market,code,month,cache_dir,refresh_cache):
+    try:
+     month_rows=cached_month(market,code,month,cache_dir,refresh_cache,target_end_date=end_date)
+    except TypeError:
+     month_rows=cached_month(market,code,month,cache_dir,refresh_cache)
+    for row in month_rows:
      if row['trade_date']<=end_date:by_date[row['trade_date']]=row
     if len(by_date)>=days:break
     month=previous_month(month);time.sleep(0.6)
