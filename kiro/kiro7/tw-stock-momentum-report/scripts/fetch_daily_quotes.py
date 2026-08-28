@@ -89,16 +89,30 @@ def parse_twse_mi_index(payload:Any,requested_date:str,url:str,stamp:str)->list[
   records.append(QuoteRecord(requested_date,'TWSE',str(row[0]).strip(),str(row[1]).strip(),*values,change,volume,all(x is not None for x in values),volume is not None and volume>0,'TWSE MI_INDEX',url,stamp))
  return _unique(records)
 
-def fetch_json(url:str,timeout:float=20,attempts:int=3)->tuple[Any,str]:
+def fetch_json(url:str,timeout:float=30,attempts:int=10)->tuple[Any,str]:
  error=None
  for attempt in range(attempts):
   try:
-   request=Request(url,headers={'User-Agent':'tw-stock-momentum-report/1.0','Accept':'application/json'})
-   with urlopen(request,timeout=timeout) as response:raw=response.read();stamp=datetime.now(timezone.utc).isoformat()
+   request=Request(url,headers={'User-Agent':'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36','Accept':'application/json, text/plain, */*'})
+   with urlopen(request,timeout=timeout) as response:
+    if response.info().get('Content-Encoding')=='gzip':
+     import gzip; raw=gzip.decompress(response.read())
+    else:
+     chunks=[]
+     while True:
+      try:
+       chunk=response.read(65536)
+       if not chunk:break
+       chunks.append(chunk)
+      except IncompleteRead as inc_exc:
+       if inc_exc.partial:chunks.append(inc_exc.partial)
+       break
+     raw=b''.join(chunks)
+    stamp=datetime.now(timezone.utc).isoformat()
    return json.loads(raw.decode('utf-8-sig')),stamp
-  except (HTTPError,URLError,TimeoutError,IncompleteRead,json.JSONDecodeError,UnicodeDecodeError) as exc:
+  except (HTTPError,URLError,TimeoutError,IncompleteRead,json.JSONDecodeError,UnicodeDecodeError,OSError) as exc:
    error=exc
-   if attempt+1<attempts:time.sleep(2**attempt)
+   if attempt+1<attempts:time.sleep(1.5*(attempt+1))
  raise QuoteDataError(f'official quote fetch failed: {error}')
 
 def fetch_market(market:str,requested_date:str|None=None)->list[QuoteRecord]:

@@ -135,17 +135,30 @@ def parse_tpex(payload: Any, source_url: str, fetched_at: str) -> list[Instituti
     return _unique(records)
 
 
-def fetch_json(url: str, timeout: float=20, attempts: int=3) -> tuple[Any,str]:
+def fetch_json(url: str, timeout: float=30, attempts: int=10) -> tuple[Any,str]:
     error=None
     for attempt in range(attempts):
         try:
-            request=Request(url,headers={"User-Agent":"tw-stock-momentum-report/1.0","Accept":"application/json"})
+            request=Request(url,headers={"User-Agent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36","Accept":"application/json, text/plain, */*"})
             with urlopen(request,timeout=timeout) as response:
-                raw=response.read(); fetched_at=datetime.now(timezone.utc).isoformat()
+                if response.info().get("Content-Encoding")=="gzip":
+                    import gzip; raw=gzip.decompress(response.read())
+                else:
+                    chunks=[]
+                    while True:
+                        try:
+                            chunk=response.read(65536)
+                            if not chunk: break
+                            chunks.append(chunk)
+                        except IncompleteRead as inc_exc:
+                            if inc_exc.partial: chunks.append(inc_exc.partial)
+                            break
+                    raw=b"".join(chunks)
+                fetched_at=datetime.now(timezone.utc).isoformat()
             return json.loads(raw.decode("utf-8-sig")), fetched_at
         except (HTTPError,URLError,TimeoutError,IncompleteRead,json.JSONDecodeError,UnicodeDecodeError,OSError) as exc:
             error=exc
-            if attempt+1<attempts: time.sleep(2**attempt)
+            if attempt+1<attempts: time.sleep(1.5*(attempt+1))
     raise DataError(f"official fetch failed after {attempts} attempts: {error}")
 
 
