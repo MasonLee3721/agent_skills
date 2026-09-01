@@ -12,13 +12,11 @@ from pathlib import Path
 
 FUND_CODE = "49YTW"  # 台股代號：00981A（統一臺灣成長主動ETF），ezmoney 內部代碼為 49YTW
 URL = f"https://www.ezmoney.com.tw/ETF/Fund/Info?fundCode={FUND_CODE}"
-SAVE_DIR = Path(r"C:\openab\agent_skills\kiro\kiro7\active-etf-portfolio\data")
+SAVE_DIR = Path(__file__).parent / "data"
 UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
 
 
 def download_excel() -> Path:
-    from playwright.sync_api import sync_playwright
-
     SAVE_DIR.mkdir(parents=True, exist_ok=True)
     today = datetime.now().strftime("%Y%m%d")
     dest = SAVE_DIR / f"active_etf_{FUND_CODE}_{today}.xlsx"
@@ -27,47 +25,57 @@ def download_excel() -> Path:
         print(f"[已存在] {dest.name}，跳過下載")
         return dest
 
-    with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True)
-        ctx = browser.new_context(
-            viewport={"width": 1280, "height": 900},
-            user_agent=UA,
-            accept_downloads=True
-        )
-        page = ctx.new_page()
+    try:
+        import requests
+        import urllib3
+        urllib3.disable_warnings()
 
-        print(f"[開啟] {URL}")
-        page.goto(URL, wait_until="networkidle", timeout=30000)
+        print(f"[開啟 HTTP 請求下載] {URL}")
+        s = requests.Session()
+        s.headers.update({"User-Agent": UA})
+        s.get("https://www.ezmoney.com.tw/", verify=False, timeout=15)
+        s.get(URL, verify=False, timeout=15)
 
-        # 點「基金投資組合」tab
-        tab = page.locator("a", has_text="基金投資組合")
-        assert tab.count() > 0, "找不到「基金投資組合」tab"
-        tab.first.click()
-        page.wait_for_timeout(2000)
-        print("[進入] 基金投資組合")
+        dl_url = f"https://www.ezmoney.com.tw/ETF/Fund/AssetExcelNPOI?fundCode={FUND_CODE}"
+        r = s.get(dl_url, verify=False, timeout=20)
+        if r.status_code == 200 and len(r.content) > 1000:
+            dest.write_bytes(r.content)
+            print(f"[下載完成] {dest}")
+            return dest
+    except Exception as exc:
+        print(f"[HTTP 下載失敗，嘗試 Playwright 降級方案] {exc}")
 
-        # 展開全部（若有）
-        expand = page.locator("text=展開全部")
-        if expand.count() > 0:
-            expand.first.click()
-            page.wait_for_timeout(1500)
-            print("[展開] 全部持股")
-
-        # 滾到底部確保按鈕可見
-        page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
-        page.wait_for_timeout(1000)
-
-        # 點「匯出XLSX檔」
-        xlsx_btn = page.locator("text=匯出XLSX檔")
-        assert xlsx_btn.count() > 0, "找不到「匯出XLSX檔」按鈕"
-        with page.expect_download(timeout=30000) as dl_info:
-            xlsx_btn.first.click()
-        download = dl_info.value
-        download.save_as(dest)
-        browser.close()
-
-    print(f"[下載完成] {dest}")
-    return dest
+    try:
+        from playwright.sync_api import sync_playwright
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=True)
+            ctx = browser.new_context(
+                viewport={"width": 1280, "height": 900},
+                user_agent=UA,
+                accept_downloads=True
+            )
+            page = ctx.new_page()
+            page.goto(URL, wait_until="networkidle", timeout=30000)
+            tab = page.locator("a", has_text="基金投資組合")
+            if tab.count() > 0:
+                tab.first.click()
+                page.wait_for_timeout(2000)
+            expand = page.locator("text=展開全部")
+            if expand.count() > 0:
+                expand.first.click()
+                page.wait_for_timeout(1500)
+            page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+            page.wait_for_timeout(1000)
+            xlsx_btn = page.locator("text=匯出XLSX檔")
+            with page.expect_download(timeout=30000) as dl_info:
+                xlsx_btn.first.click()
+            download = dl_info.value
+            download.save_as(dest)
+            browser.close()
+            print(f"[下載完成] {dest}")
+            return dest
+    except Exception as exc:
+        raise RuntimeError(f"Download 00981A active ETF failed: {exc}")
 
 
 def compare_with_yesterday(today_file: Path):
