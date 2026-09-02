@@ -14,6 +14,7 @@ def technical_scores(t:dict[str,Any])->dict[str,dict[str,Any]]:
  for k,label in (("close_above_ma5","站上MA5"),("close_above_ma10","站上MA10"),("close_above_ma20","站上MA20")):
   if t.get(k):ma+=2;reasons.append(label)
  bv=0;br=[]
+ if t.get("first_day_ignition"):bv+=5;br.append("🚀 噴出第一根起爆 (+5分)")
  if t.get("close_breakout_prior_20d_high"):bv+=6;br.append("收盤突破前20日高")
  dist=D(t.get("distance_from_prior_20d_high_pct"))
  if dist is not None and dist>=-3:bv+=3;br.append("距前20日高點3%內")

@@ -22,5 +22,9 @@ class ScoreTests(unittest.TestCase):
   r=continuity_score(3,[100,200,300]);self.assertEqual(r["score"],18)
  def test_foreign_divergence_gets_no_sync_points(self):
   r=foreign_score([100,100,100],[-100,-100,-100]);self.assertEqual(r["score"],0);self.assertIn("法人分歧",r["reasons"])
+ def test_first_day_ignition_adds_reasons(self):
+  t=self.strong_technical();t["first_day_ignition"]=True
+  s=technical_scores(t)
+  self.assertIn("🚀 噴出第一根起爆 (+5分)",s["breakout_volume"]["reasons"])
 
 if __name__=="__main__":unittest.main()
