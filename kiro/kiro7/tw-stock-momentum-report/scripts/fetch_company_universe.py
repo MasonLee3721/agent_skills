@@ -75,7 +75,7 @@ def parse_tpex(payload:Any,url:str,fetched_at:str)->list[CompanyRecord]:
     integer(row.get('Paidin.Capital.NTDollars')),integer(row.get('IssueShares')),par_value(row.get('ParValueOfCommonStock')),False,'TPEx OTC company profile',url,fetched_at))
  return _unique(result)
 
-def fetch_json(url:str,timeout:float=20,attempts:int=3)->tuple[Any,str]:
+def fetch_json(url:str,timeout:float=30,attempts:int=5)->tuple[Any,str]:
  error=None
  for attempt in range(attempts):
   try:
