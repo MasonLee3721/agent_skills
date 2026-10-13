@@ -13,11 +13,16 @@ def execute(output_dir:Path,attempts:int,interval_seconds:int,publish:bool=False
  for attempt in range(1,attempts+1):
   now=datetime.now(timezone.utc).isoformat();result=subprocess.run([sys.executable,str(runner),"--output-dir",str(output_dir)],text=True,capture_output=True);event={"attempt":attempt,"at":now,"returncode":result.returncode,"stdout":result.stdout.strip(),"stderr":result.stderr.strip()};events.append(event);log_path.write_text("\n\n".join(json.dumps(x,ensure_ascii=False) for x in events)+"\n",encoding="utf-8")
   if result.returncode==0:
-   atomic_json(status_path,{"status":"completed","completed_at":datetime.now(timezone.utc).isoformat(),"attempts_used":attempt,"log_path":str(log_path)});print(result.stdout.strip())
-   if publish:
-    publisher=Path(__file__).resolve().parent/"publish_daily_report.py";published=subprocess.run([sys.executable,str(publisher),"--output-dir",str(output_dir)],text=True,capture_output=True)
-    if published.returncode:print(published.stderr.strip(),file=sys.stderr);return 4
-    print(published.stdout.strip())
+   print(result.stdout.strip());base={"attempts_used":attempt,"log_path":str(log_path)}
+   if not publish:atomic_json(status_path,{"status":"completed","completed_at":datetime.now(timezone.utc).isoformat(),**base});return 0
+   # Status must not claim "completed" until publish succeeds; an interrupted publish leaves "publish_pending".
+   atomic_json(status_path,{"status":"publish_pending","screen_completed_at":datetime.now(timezone.utc).isoformat(),**base})
+   publisher=Path(__file__).resolve().parent/"publish_daily_report.py";published=subprocess.run([sys.executable,str(publisher),"--output-dir",str(output_dir)],text=True,capture_output=True)
+   if published.returncode:
+    atomic_json(status_path,{"status":"failed_publish","failed_at":datetime.now(timezone.utc).isoformat(),"last_error":(published.stderr or published.stdout).strip(),**base});print(published.stderr.strip(),file=sys.stderr);return 4
+   try:info=json.loads(published.stdout.strip().splitlines()[-1])
+   except (json.JSONDecodeError,IndexError):info={}
+   atomic_json(status_path,{"status":"completed","completed_at":datetime.now(timezone.utc).isoformat(),"publish_status":info.get("status"),"commit":info.get("commit"),**base});print(published.stdout.strip())
    return 0
   message=result.stderr+"\n"+result.stdout
   if not retryable(message):atomic_json(status_path,{"status":"failed_non_retryable","failed_at":datetime.now(timezone.utc).isoformat(),"attempts_used":attempt,"last_error":message.strip(),"log_path":str(log_path)});print(message.strip(),file=sys.stderr);return 2

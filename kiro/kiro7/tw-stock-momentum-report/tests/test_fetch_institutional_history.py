@@ -28,5 +28,16 @@ class HistoryTests(unittest.TestCase):
   with tempfile.TemporaryDirectory() as d:
    with patch('fetch_institutional_history.fetch_day',return_value=None) as fetch:
     self.assertIsNone(cached_day('TWSE',date(2026,8,18),Path(d),900));self.assertIsNone(cached_day('TWSE',date(2026,8,18),Path(d),900));self.assertEqual(fetch.call_count,1)
+ def test_empty_holiday_table_is_not_a_trading_day(self):
+  # Regression 2026-09-29: TPEx returned empty tables on 09-25/09-28 holidays, which were counted as trading days with missing rows.
+  from fetch_institutional_history import collect
+  from fetch_official_data import InstitutionalRecord
+  def fake(market,day,*a,**k):
+   if day.isoformat() in ('2026-09-25','2026-09-28'):return []
+   return [InstitutionalRecord(day.isoformat(),'3324','雙鴻','TPEx',10,5,'s','u','t')]
+  with tempfile.TemporaryDirectory() as d:
+   t=Path(d)/'t.json';t.write_text(json.dumps({'trade_date':'2026-09-29','targets':[{'market':'TPEx','stock_code':'3324','stock_name':'雙鴻'}]}),encoding='utf-8')
+   with patch('fetch_institutional_history.cached_day',side_effect=fake):r=collect(t,'2026-09-29',3)
+  h=r['records'][0]['sitc_history'];self.assertEqual([x['trade_date'] for x in h],['2026-09-23','2026-09-24','2026-09-29']);self.assertFalse(any(x['missing'] for x in h));self.assertEqual(r['warnings'],[])
 
 if __name__=='__main__':unittest.main()
