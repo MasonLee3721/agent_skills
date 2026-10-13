@@ -9,5 +9,7 @@
 - 驗證成功後只更新 `kiro-notes/master` 內最新版 HTML、日期版 HTML、報告 JSON 與執行狀態。
 - 週末或國定假日仍會執行；若交易日及報告內容未變，不建立新 Commit。
 - 失敗時保留上一份 `latest.html`，不得發布半套報告。
+- GitHub Actions 僅授予發布工作所需的 `contents: write`，不得授予管理、Actions 或其他儲存庫權限。
+- 發布子目錄必須是儲存庫內的相對路徑；拒絕絕對路徑、`..` 及解析後離開 checkout 的符號連結。
 
 本機 cron 不作為正式排程，避免臨時容器重啟後排程消失。

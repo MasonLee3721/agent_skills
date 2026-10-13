@@ -17,6 +17,8 @@ description: 使用最新已完成交易日的可驗證資料，篩選台灣上�
 
 可重用純計算核心位於 `scripts/momentum_core.py`；官方法人抓取器位於 `scripts/fetch_official_data.py`；官方公司／實際發行股數抓取器位於 `scripts/fetch_company_universe.py`；官方單日行情抓取器位於 `scripts/fetch_daily_quotes.py`；正規化資料合併器位於 `scripts/build_dataset.py`；歷史抓取目標產生器位於 `scripts/select_history_targets.py`；候選股法人與行情回補器位於 `scripts/fetch_institutional_history.py`、`scripts/fetch_price_history.py`；每日模式分類、評分與報告腳本位於 `scripts/finalize_daily_candidates.py`、`scripts/build_daily_scores.py`、`scripts/render_daily_report.py`。每日單一入口為 `scripts/run_daily_screen.py`，排程重試入口為 `scripts/run_scheduled_daily.py`。修改後執行 `uv run --python 3.12 python -m unittest discover -s tests -v`。抓取器不得直接重寫核心公式。
 
+`scripts/run_daily_screen.py` 只有在法人歷史、技術資料及 HTML 報告三階段皆完成時才可回傳成功。任何階段失敗或略過都必須回傳非零狀態碼，避免排程將半套結果標記為完成。不得恢復或執行已移除的舊版 Perl 報告器；正式流程僅以本文件列出的 Python 管線為準。
+
 ## 執行流程
 
 ### 每日單一命令

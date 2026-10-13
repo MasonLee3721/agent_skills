@@ -5,6 +5,8 @@ from datetime import date
 from pathlib import Path
 from detect_latest_trade_date import TradeDateError,detect
 class DailyScreenError(RuntimeError):pass
+def completed(result:dict)->bool:
+ return all(result.get(key)=="completed" for key in ("history_status","technical_status","report_status"))
 def run(command:list[str])->None:
  result=subprocess.run(command,text=True)
  if result.returncode!=0:raise DailyScreenError(f"step failed with exit {result.returncode}: {command[1]}")
@@ -41,7 +43,7 @@ def execute(day:str,root:Path)->dict:
   except DailyScreenError as exc:report_status="failed";report_error=str(exc)
  return {"trade_date":day,"preselection_counts":dataset["counts"],"screened_counts":screened_counts,"history_status":history_status,"history_error":history_error,"technical_status":technical_status,"technical_error":technical_error,"report_status":report_status,"report_error":report_error,"paths":{k:str(v) for k,v in paths.items()}}
 def main()->int:
- p=argparse.ArgumentParser();p.add_argument("--date",help="completed exchange date YYYY-MM-DD; omitted means detect from four official sources");p.add_argument("--output-dir",type=Path,default=Path("output"));a=p.parse_args();day=a.date or detect()["trade_date"];result=execute(day,a.output_dir);print(json.dumps(result,ensure_ascii=False));return 0
+ p=argparse.ArgumentParser();p.add_argument("--date",help="completed exchange date YYYY-MM-DD; omitted means detect from four official sources");p.add_argument("--output-dir",type=Path,default=Path("output"));a=p.parse_args();day=a.date or detect()["trade_date"];result=execute(day,a.output_dir);print(json.dumps(result,ensure_ascii=False));return 0 if completed(result) else 3
 if __name__=="__main__":
  try:raise SystemExit(main())
  except (DailyScreenError,TradeDateError,ValueError,OSError,json.JSONDecodeError) as exc:print(f"ERROR: {exc}",file=sys.stderr);raise SystemExit(2)

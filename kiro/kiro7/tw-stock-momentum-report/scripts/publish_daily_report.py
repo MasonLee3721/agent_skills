@@ -26,8 +26,11 @@ def validate(output_dir:Path)->tuple[str,list[tuple[Path,Path]]]:
 def publish(output_dir:Path,repository:str=DEFAULT_REPOSITORY,branch:str=DEFAULT_BRANCH,subdir:str=DEFAULT_SUBDIR)->dict:
  day,files=validate(output_dir.resolve())
  if not repository or not branch or not subdir:raise PublishError("repository, branch and subdir are required")
+ subdir_path=Path(subdir)
+ if subdir_path.is_absolute() or ".." in subdir_path.parts:raise PublishError("subdir must stay inside the repository checkout")
  with tempfile.TemporaryDirectory(prefix="momentum-publish-") as temp:
-  checkout=Path(temp)/"repo";command(["git","clone","--depth","1","--branch",branch,repository,str(checkout)]);command(["git","config","user.name","FangYi Report Bot"],checkout);command(["git","config","user.email","MasonLee3721@users.noreply.github.com"],checkout);target=checkout/subdir
+  checkout=Path(temp)/"repo";command(["git","clone","--depth","1","--branch",branch,repository,str(checkout)]);command(["git","config","user.name","FangYi Report Bot"],checkout);command(["git","config","user.email","MasonLee3721@users.noreply.github.com"],checkout);target=checkout/subdir_path
+  if not target.resolve().is_relative_to(checkout.resolve()):raise PublishError("subdir resolves outside the repository checkout")
   for source,relative in files:
    destination=target/relative;destination.parent.mkdir(parents=True,exist_ok=True);shutil.copy2(source,destination)
   relative_target=target.relative_to(checkout);command(["git","add","--",str(relative_target)],checkout)
