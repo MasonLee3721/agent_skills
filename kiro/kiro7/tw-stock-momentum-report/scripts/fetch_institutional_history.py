@@ -110,7 +110,7 @@ def collect(targets_path:Path,end_date:str,days:int,max_calendar_days:int=40,cac
    for market in markets:
     if successful[market]>=days:continue
     records=cached_day(market,cursor,cache_dir,failure_cooldown_seconds)
-    if records is None:continue
+    if not records:continue
     successful[market]+=1;lookup={r.stock_code:r for r in records}
     for code in markets[market]:
      r=lookup.get(code)
