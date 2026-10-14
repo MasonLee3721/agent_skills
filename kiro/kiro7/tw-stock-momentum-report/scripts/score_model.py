@@ -43,7 +43,9 @@ def continuity_score(streak,daily):
 def chip_score(estimated_pct=None,actual_pct=None):
  value=D(actual_pct) if actual_pct is not None else D(estimated_pct)
  if value is None:return {"score":0,"max":15,"status":"missing","reasons":["缺少持股或累計比例"]}
- raw=15 if 3<=value<=7 else 12 if 2<=value<3 or 7<value<=8 else 7 if value<2 else 5 if value<=15 else 2 if value<=20 else 0;estimated=actual_pct is None;score=min(11,(raw*3)//4) if estimated else raw;label="期間累計買超比例（估算）" if estimated else "實際持股比例"
+ estimated=actual_pct is None;label="期間累計買超比例（估算）" if estimated else "實際持股比例"
+ if value<=0:return {"score":0,"max":15,"status":"estimated" if estimated else "actual","reasons":[f"{label}{value}%；非正值不加分"]}
+ raw=15 if 3<=value<=7 else 12 if 2<=value<3 or 7<value<=8 else 7 if value<2 else 5 if value<=15 else 2 if value<=20 else 0;score=min(11,(raw*3)//4) if estimated else raw
  return {"score":int(score),"max":15,"status":"estimated" if estimated else "actual","reasons":[f"{label}{value}%"]}
 def foreign_score(sitc,foreign,source_status="actual"):
  if not isinstance(sitc,list) or not isinstance(foreign,list) or len(sitc)<3 or len(foreign)<3:return {"score":0,"max":10,"status":"missing","reasons":["缺少近3日法人資料"]}

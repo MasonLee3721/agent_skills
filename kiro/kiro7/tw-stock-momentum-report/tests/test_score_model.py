@@ -18,6 +18,12 @@ class ScoreTests(unittest.TestCase):
   r=investment_score("0.8");self.assertEqual(r["score"],11);self.assertEqual(r["status"],"partial")
  def test_estimated_chip_score_is_capped(self):
   r=chip_score(estimated_pct="4");self.assertEqual(r["score"],11);self.assertEqual(r["status"],"estimated")
+ def test_non_positive_chip_position_scores_zero(self):
+  for value in ("-2.4","0"):
+   with self.subTest(value=value):
+    estimated=chip_score(estimated_pct=value);actual=chip_score(actual_pct=value)
+    self.assertEqual(estimated["score"],0);self.assertEqual(actual["score"],0)
+    self.assertIn("非正值不加分",estimated["reasons"][0])
  def test_continuity_acceleration(self):
   r=continuity_score(3,[100,200,300]);self.assertEqual(r["score"],18)
  def test_foreign_divergence_gets_no_sync_points(self):
